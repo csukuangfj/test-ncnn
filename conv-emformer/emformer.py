@@ -1570,6 +1570,7 @@ class Emformer(EncoderInterface):
         memory_size: int = 0,
         tanh_on_mem: bool = False,
         negative_inf: float = -1e8,
+        is_pnnx: bool = False,
     ):
         super().__init__()
 
@@ -1596,7 +1597,7 @@ class Emformer(EncoderInterface):
         # That is, it does two things simultaneously:
         #   (1) subsampling: T -> T//subsampling_factor
         #   (2) embedding: num_features -> d_model
-        self.encoder_embed = Conv2dSubsampling(num_features, d_model)
+        self.encoder_embed = Conv2dSubsampling(num_features, d_model, is_pnnx=is_pnnx)
 
         self.encoder = EmformerEncoder(
             chunk_length=chunk_length // subsampling_factor,
@@ -1698,9 +1699,9 @@ class Emformer(EncoderInterface):
             - updated states from current chunk's computation.
         """
         x = self.encoder_embed(x)
+        return x
         # drop the first and last frames
         x = x[:, 1:-1, :]
-        return x
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
 
         # Caution: We assume the subsampling factor is 4!

@@ -38,6 +38,7 @@ class Foo(nn.Module):
             left_context_length=left_context_length,
             right_context_length=right_context_length,
             memory_size=memory_size,
+            is_pnnx=is_pnnx,
         )
 
     def forward(
