@@ -606,7 +606,6 @@ class Conv2dSubsampling(nn.Module):
 
         # Now x is of shape (N, ((T-3)//2-1))//2, odim)
         x = self.out_norm(x)
-        return x
         x = self.out_balancer(x)
         return x
 
