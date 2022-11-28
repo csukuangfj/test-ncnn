@@ -25,8 +25,6 @@ import torch.backends.cudnn.rnn as rnn
 import torch.nn as nn
 from torch import _VF, Tensor
 
-from icefall.utils import is_jit_tracing
-
 
 def _ntuple(n):
     def parse(x):
@@ -169,7 +167,7 @@ class GradientFilter(torch.nn.Module):
         self.threshold = threshold
 
     def forward(self, x: Tensor, *params: Tensor) -> Tuple[Tensor, ...]:
-        if torch.jit.is_scripting() or is_jit_tracing():
+        if torch.jit.is_scripting() or torch.jit.is_tracing():
             return (x,) + params
         else:
             return GradientFilterFunction.apply(
@@ -224,7 +222,7 @@ class BasicNorm(torch.nn.Module):
             self.register_buffer("eps", torch.tensor(eps).log().detach())
 
     def forward(self, x: Tensor) -> Tensor:
-        if not is_jit_tracing():
+        if not torch.jit.is_tracing():
             assert x.shape[self.channel_dim] == self.num_channels
         scales = (
             torch.mean(x**2, dim=self.channel_dim, keepdim=True) + self.eps.exp()
@@ -699,7 +697,7 @@ class DoubleSwish(torch.nn.Module):
         """Return double-swish activation function which is an approximation to Swish(Swish(x)),
         that we approximate closely with x * sigmoid(x-1).
         """
-        if torch.jit.is_scripting() or is_jit_tracing():
+        if torch.jit.is_scripting() or torch.jit.is_tracing():
             return x * torch.sigmoid(x - 1.0)
         else:
             return DoubleSwishFunction.apply(x)

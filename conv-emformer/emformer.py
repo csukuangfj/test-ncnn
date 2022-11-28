@@ -33,9 +33,34 @@ from scaling import (
     ScaledLinear,
 )
 
-from icefall.utils import make_pad_mask
-
 LOG_EPSILON = math.log(1e-10)
+
+def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+    """
+    Args:
+      lengths:
+        A 1-D tensor containing sentence lengths.
+      max_len:
+        The length of masks.
+    Returns:
+      Return a 2-D bool tensor, where masked positions
+      are filled with `True` and non-masked positions are
+      filled with `False`.
+
+    >>> lengths = torch.tensor([1, 3, 2, 5])
+    >>> make_pad_mask(lengths)
+    tensor([[False,  True,  True,  True,  True],
+            [False, False, False,  True,  True],
+            [False, False,  True,  True,  True],
+            [False, False, False, False, False]])
+    """
+    assert lengths.ndim == 1, lengths.ndim
+    max_len = max(max_len, lengths.max())
+    n = lengths.size(0)
+
+    expaned_lengths = torch.arange(max_len).expand(n, max_len).to(lengths)
+
+    return expaned_lengths >= lengths.unsqueeze(1)
 
 
 def unstack_states(
@@ -1637,11 +1662,12 @@ class Emformer(EncoderInterface):
         x_lens: torch.Tensor,
         num_processed_frames: torch.Tensor,
         states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
-    ) -> Tuple[
-        torch.Tensor,
-        torch.Tensor,
-        Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
-    ]:
+        )->torch.Tensor:
+    #  ) -> Tuple[
+    #      torch.Tensor,
+    #      torch.Tensor,
+    #      Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
+    #  ]:
         """Forward pass for streaming inference.
 
         B: batch size;
@@ -1674,6 +1700,7 @@ class Emformer(EncoderInterface):
         x = self.encoder_embed(x)
         # drop the first and last frames
         x = x[:, 1:-1, :]
+        return x
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
 
         # Caution: We assume the subsampling factor is 4!
@@ -1715,6 +1742,7 @@ class Conv2dSubsampling(nn.Module):
         layer1_channels: int = 8,
         layer2_channels: int = 32,
         layer3_channels: int = 128,
+        is_pnnx: bool = False,
     ) -> None:
         """
         Args:
@@ -1727,6 +1755,9 @@ class Conv2dSubsampling(nn.Module):
             Number of channels in layer1
           layer1_channels:
             Number of channels in layer2
+          is_pnnx:
+            True if we are converting the model to PNNX format.
+            False otherwise.
         """
         assert in_channels >= 7
         super().__init__()
@@ -1769,6 +1800,10 @@ class Conv2dSubsampling(nn.Module):
             channel_dim=-1, min_positive=0.45, max_positive=0.55
         )
 
+        # ncnn supports only batch size == 1
+        self.is_pnnx = is_pnnx
+        self.conv_out_dim = self.out.weight.shape[1]
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Subsample x.
 
@@ -1782,9 +1817,14 @@ class Conv2dSubsampling(nn.Module):
         # On entry, x is (N, T, idim)
         x = x.unsqueeze(1)  # (N, T, idim) -> (N, 1, T, idim) i.e., (N, C, H, W)
         x = self.conv(x)
-        # Now x is of shape (N, odim, ((T-1)//2 - 1)//2, ((idim-1)//2 - 1)//2)
-        b, c, t, f = x.size()
-        x = self.out(x.transpose(1, 2).contiguous().view(b, t, c * f))
+
+        if torch.jit.is_tracing() and self.is_pnnx:
+            x = x.permute(0, 2, 1, 3).reshape(1, -1, self.conv_out_dim)
+            x = self.out(x)
+        else:
+            # Now x is of shape (N, odim, ((T-1)//2-1)//2, ((idim-1)//2-1)//2)
+            b, c, t, f = x.size()
+            x = self.out(x.transpose(1, 2).contiguous().view(b, t, c * f))
         # Now x is of shape (N, ((T-1)//2 - 1))//2, odim)
         x = self.out_norm(x)
         x = self.out_balancer(x)

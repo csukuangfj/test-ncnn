@@ -2,4 +2,5 @@
 *.bin
 *_ncnn.py
 *_pnnx.py
-
+*.pt
+__pycache__

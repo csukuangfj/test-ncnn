@@ -29,7 +29,6 @@ from typing import List
 
 import torch
 import torch.nn as nn
-from lstmp import LSTMP
 from scaling import (
     ActivationBalancer,
     BasicNorm,
@@ -299,14 +298,6 @@ def convert_scaled_to_non_scaled(
             d[name] = scaled_embedding_to_embedding(m)
         elif isinstance(m, BasicNorm):
             d[name] = convert_basic_norm(m)
-        elif isinstance(m, ScaledLSTM):
-            if is_onnx:
-                d[name] = LSTMP(scaled_lstm_to_lstm(m))
-                # See
-                # https://github.com/pytorch/pytorch/issues/47887
-                #  d[name] = torch.jit.script(LSTMP(scaled_lstm_to_lstm(m)))
-            else:
-                d[name] = scaled_lstm_to_lstm(m)
         elif isinstance(m, ActivationBalancer):
             d[name] = nn.Identity()
 
