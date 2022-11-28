@@ -1598,6 +1598,7 @@ class Emformer(EncoderInterface):
         #   (1) subsampling: T -> T//subsampling_factor
         #   (2) embedding: num_features -> d_model
         self.encoder_embed = Conv2dSubsampling(num_features, d_model, is_pnnx=is_pnnx)
+        self.is_pnnx = is_pnnx
 
         self.encoder = EmformerEncoder(
             chunk_length=chunk_length // subsampling_factor,
@@ -1663,7 +1664,7 @@ class Emformer(EncoderInterface):
         x_lens: torch.Tensor,
         num_processed_frames: torch.Tensor,
         states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
-        )->torch.Tensor:
+        )->Tuple[torch.Tensor, torch.Tensor]:
     #  ) -> Tuple[
     #      torch.Tensor,
     #      torch.Tensor,
@@ -1699,15 +1700,23 @@ class Emformer(EncoderInterface):
             - updated states from current chunk's computation.
         """
         x = self.encoder_embed(x)
-        return x
         # drop the first and last frames
         x = x[:, 1:-1, :]
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
 
         # Caution: We assume the subsampling factor is 4!
-        x_lens = (((x_lens - 1) >> 1) - 1) >> 1
+
+        if not self.is_pnnx:
+            x_lens = (((x_lens - 1) >> 1) - 1) >> 1
+        else:
+            lengths1 = torch.floor((x_lens - 1) / 2)
+            lengths = torch.floor((lengths1 - 1) / 2)
+            x_lens = lengths.to(x_lens)
+
         x_lens -= 2
+
         assert x.size(0) == x_lens.max().item()
+        return x, x_lens
 
         num_processed_frames = num_processed_frames >> 2
 

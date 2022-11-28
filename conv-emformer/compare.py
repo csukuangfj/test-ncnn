@@ -28,10 +28,12 @@ def main():
     num_processed_frames = torch.tensor([0])
     states = f.encoder.init_states()
 
-    y = m(x, x_lens, num_processed_frames, states).squeeze(0)
+    y, y_lens = m(x, x_lens, num_processed_frames, states)
+    y = y.squeeze(1)
 
     print("x", x.shape)
     print("y", y.shape)
+    print("y_lens", y_lens)
 
     param = "m.ncnn.param"
     model = "m.ncnn.bin"
@@ -42,12 +44,22 @@ def main():
 
         with net.create_extractor() as ex:
             ex.input("in0", ncnn.Mat(x.squeeze(0).numpy()).clone())
+            x_lens = x_lens.float()
+            ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
 
             ret, ncnn_out0 = ex.extract("out0")
+            ret, ncnn_out1 = ex.extract("out1")
 
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
+            ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().long()
+
             print("y", y.shape, ncnn_y.shape)
             assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
+
+            print("y_lens", ncnn_y_lens, y_lens)
+            assert torch.allclose(y_lens, ncnn_y_lens, atol=1e-3), (
+                (y_lens - ncnn_y_lens).abs().max()
+            )
 
 
 if __name__ == "__main__":
