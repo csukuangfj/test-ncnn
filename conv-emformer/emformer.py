@@ -466,6 +466,10 @@ class EmformerAttention(nn.Module):
         self,
         embed_dim: int,
         nhead: int,
+        left_context_length : int,
+        chunk_length : int,
+        right_context_length : int,
+        memory_size: int,
         dropout: float = 0.0,
         tanh_on_mem: bool = False,
         negative_inf: float = -1e8,
@@ -483,6 +487,11 @@ class EmformerAttention(nn.Module):
         self.negative_inf = negative_inf
         self.head_dim = embed_dim // nhead
         self.dropout = dropout
+
+        self.left_context_length = left_context_length
+        self.right_context_length = right_context_length
+        self.chunk_length = chunk_length
+        self.memory_size = memory_size
 
         self.emb_to_key_value = ScaledLinear(embed_dim, 2 * embed_dim, bias=True)
         self.emb_to_query = ScaledLinear(embed_dim, embed_dim, bias=True)
@@ -555,13 +564,20 @@ class EmformerAttention(nn.Module):
         left_context_val: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Underlying chunk-wise attention implementation."""
-        U, B, _ = utterance.size()
-        R = right_context.size(0)
-        M = memory.size(0)
+        #  U, B, _ = utterance.size()
+        #  R = right_context.size(0)
+        #  M = memory.size(0)
+
+        U = self.chunk_length
+        B = 1
+        R = self.right_context_length
+        M = self.memory_size
+
         scaling = float(self.head_dim) ** -0.5
 
         # compute query with [right_context, utterance].
         query = self.emb_to_query(torch.cat([right_context, utterance]))
+        return query, query, query
         # compute key and value with [memory, right_context, utterance].
         key, value = self.emb_to_key_value(
             torch.cat([memory, right_context, utterance])
@@ -724,10 +740,15 @@ class EmformerAttention(nn.Module):
             - attention value of left context and utterance, which would be
               cached for next computation, with shape (L + U, B, D).
         """
-        U = utterance.size(0)
-        R = right_context.size(0)
-        L = left_context_key.size(0)
-        M = memory.size(0)
+        #  U = utterance.size(0)
+        #  R = right_context.size(0)
+        #  L = left_context_key.size(0)
+        #  M = memory.size(0)
+
+        U = self.chunk_length
+        R = self.right_context_length
+        L = self.left_context_length
+        M = self.memory_size
 
         # query = [right context, utterance]
         Q = R + U
@@ -803,6 +824,10 @@ class EmformerEncoderLayer(nn.Module):
         self.attention = EmformerAttention(
             embed_dim=d_model,
             nhead=nhead,
+            left_context_length=left_context_length,
+            chunk_length=chunk_length,
+            memory_size=memory_size,
+            right_context_length=right_context_length,
             dropout=dropout,
             tanh_on_mem=tanh_on_mem,
             negative_inf=negative_inf,
@@ -957,8 +982,7 @@ class EmformerEncoderLayer(nn.Module):
             ]
         else:
             memory = torch.empty(0).to(dtype=utterance.dtype, device=utterance.device)
-        return memory, attn_cache
-        (output_right_context_utterance, next_key, next_val,) = self.attention.infer(
+        (output_right_context_utterance, next_key, next_val) = self.attention.infer(
             utterance=utterance,
             right_context=right_context,
             memory=pre_memory,
@@ -966,6 +990,7 @@ class EmformerEncoderLayer(nn.Module):
             left_context_val=left_context_val,
             padding_mask=padding_mask,
         )
+        return output_right_context_utterance, attn_cache
         attn_cache = self._update_attn_cache(next_key, next_val, memory, attn_cache)
         return output_right_context_utterance, attn_cache
 
