@@ -31,6 +31,7 @@ class Foo(nn.Module):
         return y
 
 
+@torch.no_grad()
 def main():
     num_features = 80
     d_model = 512
@@ -38,6 +39,7 @@ def main():
         num_features=num_features,
         d_model=d_model,
     )
+    f.eval()
 
     N = 1
     T = 20
