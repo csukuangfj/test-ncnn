@@ -71,6 +71,9 @@ def main():
             #  (8, 1, 512) -> (8, 512)
             ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
 
+            #  (1, 512, 2) -> (512, 2)
+            #  ex.input("in5", ncnn.Mat(states[3].squeeze(1).numpy()).clone())
+
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
             #  for i, s in enumerate(states):
@@ -93,6 +96,14 @@ def main():
             assert torch.allclose(y_lens, ncnn_y_lens, atol=1e-3), (
                 (y_lens - ncnn_y_lens).abs().max()
             )
+
+            for i in range(3):
+                name = f'out{i+2}'
+                print('name', name)
+                ret, ncnn_out_x = ex.extract(name)
+                ncnn_out_x = torch.from_numpy(ncnn_out_x.numpy()).clone().long()
+                y_x = next_states[i]
+                print(name, ncnn_out_x.shape, y_x.shape)
 
 
 if __name__ == "__main__":

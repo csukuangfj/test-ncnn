@@ -1153,8 +1153,9 @@ class EmformerEncoderLayer(nn.Module):
         src_att, attn_cache = self._apply_attention_module_infer(
             src, R, attn_cache, padding_mask=padding_mask
         )
-        return src_att, right_context, attn_cache + [conv_cache]
         src = src + self.dropout(src_att)
+        print('src', src.shape, src_att.shape)
+        return src, right_context, attn_cache + [conv_cache]
 
         # convolution module
         src_conv, conv_cache = self._apply_conv_module_infer(src, R, conv_cache)
