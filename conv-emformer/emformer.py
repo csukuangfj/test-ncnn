@@ -1408,11 +1408,11 @@ class EmformerEncoder(nn.Module):
         x: torch.Tensor,
         lengths: torch.Tensor,
         num_processed_frames: torch.Tensor,
-        states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
+        states: List[torch.Tensor],
     ) -> Tuple[
         torch.Tensor,
         torch.Tensor,
-        Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
+        List[torch.Tensor],
     ]:
         """Forward pass for streaming inference.
 
@@ -1444,37 +1444,41 @@ class EmformerEncoder(nn.Module):
         """
         assert num_processed_frames.shape == (x.size(1),)
 
-        attn_caches = states[0]
-        assert len(attn_caches) == self.num_encoder_layers, len(attn_caches)
-        for i in range(len(attn_caches)):
-            assert attn_caches[i][0].shape == (
-                self.memory_size,
-                x.size(1),
-                self.d_model,
-            ), attn_caches[i][0].shape
-            assert attn_caches[i][1].shape == (
-                self.left_context_length,
-                x.size(1),
-                self.d_model,
-            ), attn_caches[i][1].shape
-            assert attn_caches[i][2].shape == (
-                self.left_context_length,
-                x.size(1),
-                self.d_model,
-            ), attn_caches[i][2].shape
+        if False:
+            attn_caches = states[0]
+            assert len(attn_caches) == self.num_encoder_layers, len(attn_caches)
+            for i in range(len(attn_caches)):
+                assert attn_caches[i][0].shape == (
+                    self.memory_size,
+                    x.size(1),
+                    self.d_model,
+                ), attn_caches[i][0].shape
+                assert attn_caches[i][1].shape == (
+                    self.left_context_length,
+                    x.size(1),
+                    self.d_model,
+                ), attn_caches[i][1].shape
+                assert attn_caches[i][2].shape == (
+                    self.left_context_length,
+                    x.size(1),
+                    self.d_model,
+                ), attn_caches[i][2].shape
 
-        conv_caches = states[1]
-        assert len(conv_caches) == self.num_encoder_layers, len(conv_caches)
-        for i in range(len(conv_caches)):
-            assert conv_caches[i].shape == (
-                x.size(1),
-                self.d_model,
-                self.cnn_module_kernel - 1,
-            ), conv_caches[i].shape
+            conv_caches = states[1]
+            assert len(conv_caches) == self.num_encoder_layers, len(conv_caches)
+            for i in range(len(conv_caches)):
+                assert conv_caches[i].shape == (
+                    x.size(1),
+                    self.d_model,
+                    self.cnn_module_kernel - 1,
+                ), conv_caches[i].shape
+
 
         right_context = x[-self.right_context_length :]
         utterance = x[: -self.right_context_length]
         output_lengths = torch.clamp(lengths - self.right_context_length, min=0)
+        return x, output_lengths, states
+
 
         # calcualte padding mask to mask out initial zero caches
         chunk_mask = make_pad_mask(output_lengths).to(x.device)
@@ -1531,8 +1535,23 @@ class EmformerEncoder(nn.Module):
         return output, output_lengths, output_states
 
     @torch.jit.export
-    def init_states(self, device: torch.device = torch.device("cpu")):
+    def init_states(self, device: torch.device = torch.device("cpu"))->List[torch.Tensor]:
         """Create initial states."""
+        #
+        states = []
+        # layer0: attn cache, conv cache, 3 tensors + 1 tensor
+        # layer1: attn cache, conv cache, 3 tensors +  1 tensor
+        # layer2: attn cache, conv cache, 3 tensors + 1 tensor
+        # ...
+        # last layer: attn cache, conv cache, 3 tensors + 1 tensor
+        for i in range(self.num_encoder_layers):
+                states.append(torch.zeros(self.memory_size, 1, self.d_model, device=device))
+                states.append(torch.zeros(self.left_context_length, 1, self.d_model, device=device))
+                states.append(torch.zeros(self.left_context_length, 1, self.d_model, device=device))
+
+                states.append(torch.zeros(1, self.d_model, self.cnn_module_kernel - 1, device=device))
+        return states
+
         attn_caches = [
             [
                 torch.zeros(self.memory_size, self.d_model, device=device),
@@ -1663,13 +1682,12 @@ class Emformer(EncoderInterface):
         x: torch.Tensor,
         x_lens: torch.Tensor,
         num_processed_frames: torch.Tensor,
-        states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
-        )->Tuple[torch.Tensor, torch.Tensor]:
-    #  ) -> Tuple[
-    #      torch.Tensor,
-    #      torch.Tensor,
-    #      Tuple[List[List[torch.Tensor]], List[torch.Tensor]],
-    #  ]:
+        states: List[torch.Tensor],
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        List[torch.Tensor],
+    ]:
         """Forward pass for streaming inference.
 
         B: batch size;
@@ -1716,20 +1734,20 @@ class Emformer(EncoderInterface):
         x_lens -= 2
 
         assert x.size(0) == x_lens.max().item()
-        return x, x_lens
 
         num_processed_frames = num_processed_frames >> 2
 
         output, output_lengths, output_states = self.encoder.infer(
             x, x_lens, num_processed_frames, states
         )
+        return output, output_lengths, output_states
 
         output = output.permute(1, 0, 2)  # (T, N, C) -> (N, T, C)
 
         return output, output_lengths, output_states
 
     @torch.jit.export
-    def init_states(self, device: torch.device = torch.device("cpu")):
+    def init_states(self, device: torch.device = torch.device("cpu"))->List[torch.Tensor]:
         """Create initial states."""
         return self.encoder.init_states(device)
 

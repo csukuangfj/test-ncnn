@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from emformer import Emformer
 from scaling_converter import convert_scaled_to_non_scaled
+from emformer import stack_states
+from typing import List
 
 
 class Foo(nn.Module):
@@ -46,7 +48,7 @@ class Foo(nn.Module):
         x: torch.Tensor,
         x_lens: torch.Tensor,
         num_processed_frames: torch.Tensor,
-        states,
+        states: List[torch.Tensor],
     ):
         """
         Args:
@@ -75,7 +77,7 @@ def main():
     num_processed_frames = torch.tensor([0])
     states = f.encoder.init_states()
     convert_scaled_to_non_scaled(f, inplace=True, is_onnx=False)
-    y, y_lens = f(x, x_lens, num_processed_frames, states)
+    y, y_lens, next_states = f(x, x_lens, num_processed_frames, states)
     print("x", x.shape)
     print("y", y.shape)
     print("y_lens", y_lens)

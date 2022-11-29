@@ -28,7 +28,7 @@ def main():
     num_processed_frames = torch.tensor([0])
     states = f.encoder.init_states()
 
-    y, y_lens = m(x, x_lens, num_processed_frames, states)
+    y, y_lens, next_states = m(x, x_lens, num_processed_frames, states)
     y = y.squeeze(1)
 
     print("x", x.shape)
