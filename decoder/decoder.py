@@ -19,8 +19,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from scaling import ScaledConv1d, ScaledEmbedding
 
-from icefall.utils import is_jit_tracing
-
 
 class Decoder(nn.Module):
     """This class modifies the stateless decoder from the following paper:
@@ -115,7 +113,7 @@ class Decoder(nn.Module):
             else:
                 # During inference time, there is no need to do extra padding
                 # as we only need one output
-                if not is_jit_tracing():
+                if not torch.jit.is_tracing():
                     assert embedding_out.size(-1) == self.context_size
             embedding_out = self.conv(embedding_out)
             embedding_out = embedding_out.permute(0, 2, 1)
