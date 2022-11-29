@@ -33,10 +33,12 @@ class Foo(nn.Module):
         return y
 
 
+@torch.no_grad()
 def main():
     context_size = 2
     vocab_size = 500
     f = Foo(context_size=context_size, vocab_size=500)
+    f.eval()
     N = 1
     T = context_size
     convert_scaled_to_non_scaled(f, inplace=True, is_onnx=False)
