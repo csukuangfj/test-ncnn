@@ -18,8 +18,6 @@ import torch
 import torch.nn as nn
 from scaling import ScaledLinear
 
-from icefall.utils import is_jit_tracing
-
 
 class Joiner(nn.Module):
     def __init__(
@@ -54,7 +52,7 @@ class Joiner(nn.Module):
         Returns:
           Return a tensor of shape (N, T, s_range, C).
         """
-        if not is_jit_tracing():
+        if not torch.jit.is_tracing():
             assert encoder_out.ndim == decoder_out.ndim
             assert encoder_out.ndim in (2, 4)
             assert encoder_out.shape == decoder_out.shape
