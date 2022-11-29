@@ -57,7 +57,7 @@ def main():
 
             # layer0 in2-in5
             # layer1 in6-in9
-            num_layers = 3
+            num_layers = 9
             for i in range(num_layers):
                 offset = 2 + i*4
                 name = f'in{offset}'
@@ -93,7 +93,7 @@ def main():
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
 
             print("y", y.shape, ncnn_y.shape, y.sum(), ncnn_y.sum(), y.mean(), ncnn_y.mean())
-            assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
+            assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
 
             ret, ncnn_out1 = ex.extract("out1")
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().long()

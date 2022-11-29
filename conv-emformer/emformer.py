@@ -1598,7 +1598,7 @@ class EmformerEncoder(nn.Module):
             end = start + 4
             cache = states[start:end]
 
-            if 0 <= layer_idx <= 2:
+            if 0 <= layer_idx <= 8:
                 (
                     output,
                     right_context,
