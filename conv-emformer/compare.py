@@ -72,7 +72,7 @@ def main():
             ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
 
             #  (1, 512, 2) -> (512, 2)
-            #  ex.input("in5", ncnn.Mat(states[3].squeeze(1).numpy()).clone())
+            ex.input("in5", ncnn.Mat(states[3].squeeze(0).numpy()).clone())
 
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
@@ -97,7 +97,7 @@ def main():
                 (y_lens - ncnn_y_lens).abs().max()
             )
 
-            for i in range(3):
+            for i in range(4):
                 name = f'out{i+2}'
                 print('name', name)
                 ret, ncnn_out_x = ex.extract(name)

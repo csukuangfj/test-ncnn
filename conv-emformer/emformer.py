@@ -412,8 +412,12 @@ class ConvolutionModule(nn.Module):
             - output right_context of shape (R, B, D).
             - updated cache tensor of shape (B, D, cache_size).
         """
-        U, B, D = utterance.size()
-        R, _, _ = right_context.size()
+        #  U, B, D = utterance.size()
+        #  R, _, _ = right_context.size()
+        U = self.chunk_length
+        B = 1
+        D = self.channels
+        R = self.right_context_length
 
         # point-wise conv
         x = torch.cat([utterance, right_context], dim=0)  # (U + R, B, D)
@@ -1155,10 +1159,12 @@ class EmformerEncoderLayer(nn.Module):
         )
         src = src + self.dropout(src_att)
         print('src', src.shape, src_att.shape)
-        return src, right_context, attn_cache + [conv_cache]
+        #  return src, right_context, attn_cache + [conv_cache]
 
         # convolution module
         src_conv, conv_cache = self._apply_conv_module_infer(src, R, conv_cache)
+        print('src_conv', src_conv.shape, conv_cache.shape)
+        return src, right_context, attn_cache + [conv_cache]
         src = src + self.dropout(src_conv)
 
         # feed forward module
