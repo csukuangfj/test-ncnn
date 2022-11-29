@@ -90,7 +90,7 @@ def main():
     print("y", y.shape)
     print("y_lens", y_lens)
     m = torch.jit.trace(f, (x, x_lens, num_processed_frames, states))
-    print(m.graph)
+    #  print(m.graph)
     m.save("m.pt")
 
 

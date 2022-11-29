@@ -572,6 +572,7 @@ class EmformerAttention(nn.Module):
         B = 1
         R = self.right_context_length
         M = self.memory_size
+        L = self.left_context_length
 
         scaling = float(self.head_dim) ** -0.5
 
@@ -582,21 +583,33 @@ class EmformerAttention(nn.Module):
         key, value = self.emb_to_key_value(
             torch.cat([memory, right_context, utterance])
         ).chunk(chunks=2, dim=2)
-        return key + 10 , key + 10, value
+        #  return key, query, value
 
         if left_context_key is not None and left_context_val is not None:
             # now compute key and value with
             #   [memory, right context, left context, uttrance]
             # this is used in inference mode
+            print(key.shape, M, R, memory.shape, right_context.shape, utterance.shape)
             key = torch.cat([key[: M + R], left_context_key, key[M + R :]])
             value = torch.cat([value[: M + R], left_context_val, value[M + R :]])
-        Q = query.size(0)
-        # KV = key.size(0)
+            print(key.shape, value.shape)
+        #  return key + value, value, value+10
 
-        reshaped_query, reshaped_key, reshaped_value = [
-            tensor.contiguous().view(-1, B * self.nhead, self.head_dim).transpose(0, 1)
-            for tensor in [query, key, value]
-        ]  # (B * nhead, Q or KV, head_dim)
+        #  Q = query.size(0)
+        Q = U+R
+
+        # KV = key.size(0)
+        print('query', query.shape, U+R )
+
+        reshaped_query = query.view(Q, self.nhead, self.head_dim).permute(1, 0, 2)
+        reshaped_key = key.view(M + R + U + L, self.nhead, self.head_dim).permute(1,0,2)
+        reshaped_value = value.view(M + R + U + L, self.nhead, self.head_dim).permute(1,0,2)
+
+        #  reshaped_query, reshaped_key, reshaped_value = [
+        #      tensor.contiguous().view(-1, B * self.nhead, self.head_dim).transpose(0, 1)
+        #      for tensor in [query, key, value]
+        #  ]  # (B * nhead, Q or KV, head_dim)
+        return reshaped_key + reshaped_value, value, value
         attention_weights = torch.bmm(
             reshaped_query * scaling, reshaped_key.transpose(1, 2)
         )  # (B * nhead, Q, KV)
@@ -1510,7 +1523,6 @@ class EmformerEncoder(nn.Module):
                 ), conv_caches[i].shape
 
 
-        print(x.shape, self.right_context_length, self.chunk_length)
         if False:
             right_context = x[-self.right_context_length :]
             utterance = x[: -self.right_context_length]
@@ -1524,7 +1536,6 @@ class EmformerEncoder(nn.Module):
         if False:
             # calculate padding mask to mask out initial zero caches
             chunk_mask = self.make_pad_mask(output_lengths).to(x.device)
-            print(output_lengths, chunk_mask)
             memory_mask = (
                 (
                     (num_processed_frames >> self.shift).view(x.size(1), 1)

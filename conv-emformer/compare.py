@@ -55,7 +55,21 @@ def main():
             x_lens = x_lens.float()
             ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
 
+            for i, s in enumerate(states):
+                if i >= 4:
+                    break
+                name = f"out{i+2}"
+                print(name, states[i].shape)
+
+            # (32, 1, 512) -> (32, 512)
             ex.input("in2", ncnn.Mat(states[0].squeeze(1).numpy()).clone())
+            print(states[0].shape, states[1].shape)
+
+            #  (8, 1, 512) -> (8, 512)
+            ex.input("in3", ncnn.Mat(states[1].squeeze(1).numpy()).clone())
+
+            #  (8, 1, 512) -> (8, 512)
+            ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
 
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
@@ -69,7 +83,7 @@ def main():
             ret, ncnn_out0 = ex.extract("out0")
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
 
-            print("y", y.shape, ncnn_y.shape)
+            print("y", y.shape, ncnn_y.shape, y.sum(), ncnn_y.sum(), y.mean(), ncnn_y.mean())
             assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
 
             ret, ncnn_out1 = ex.extract("out1")
