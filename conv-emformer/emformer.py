@@ -627,12 +627,17 @@ class EmformerAttention(nn.Module):
         attention = torch.bmm(attention_probs, reshaped_value)
         print('attention', attention_probs.shape, reshaped_value.shape)
         print(attention.shape)
-        return attention, attention, attention
         assert attention.shape == (B * self.nhead, Q, self.head_dim)
-        attention = attention.transpose(0, 1).contiguous().view(Q, B, self.embed_dim)
+        attention = attention.permute(1, 0, 2).reshape(-1, self.embed_dim)
+        # TODO(fangjun): ncnn does not support reshape(-1, 1, self.embed_dim)
+        #  return attention, attention, attention
+        # We have to change InnerProduct in ncnn to ignore the extra dim below
+        attention = attention.unsqueeze(1)
 
         # apply output projection
         output_right_context_utterance = self.out_proj(attention)
+        # The return shape of output_right_context_utterance is (10, 1, 512)
+        print('final', output_right_context_utterance.shape, key.shape, value.shape)
 
         return output_right_context_utterance, key, value
 
