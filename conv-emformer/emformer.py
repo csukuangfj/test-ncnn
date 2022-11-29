@@ -846,6 +846,7 @@ class EmformerEncoderLayer(nn.Module):
 
         self.layer_dropout = layer_dropout
         self.left_context_length = left_context_length
+        self.right_context_length = right_context_length
         self.chunk_length = chunk_length
         self.memory_size = memory_size
         self.d_model = d_model
@@ -952,10 +953,11 @@ class EmformerEncoderLayer(nn.Module):
 
         if self.use_memory:
             memory = self.summary_op(utterance.permute(1, 2, 0)).permute(2, 0, 1)[
-                :1, :, :
+                :1
             ]
         else:
             memory = torch.empty(0).to(dtype=utterance.dtype, device=utterance.device)
+        return memory, attn_cache
         (output_right_context_utterance, next_key, next_val,) = self.attention.infer(
             utterance=utterance,
             right_context=right_context,
@@ -1076,19 +1078,20 @@ class EmformerEncoderLayer(nn.Module):
              - output attention cache;
              - output convolution cache.
         """
-        R = right_context.size(0)
+        R = self.right_context_length
         src = torch.cat([right_context, utterance])
         attn_cache = cache[:3]
         conv_cache = cache[3]
 
         # macaron style feed forward module
         src = src + self.dropout(self.feed_forward_macaron(src))
-        return src, right_context, attn_cache + [conv_cache]
+        #  return src, right_context, attn_cache + [conv_cache]
 
         # emformer attention module
         src_att, attn_cache = self._apply_attention_module_infer(
             src, R, attn_cache, padding_mask=padding_mask
         )
+        return src_att, right_context, attn_cache + [conv_cache]
         src = src + self.dropout(src_att)
 
         # convolution module
