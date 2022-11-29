@@ -609,10 +609,11 @@ class EmformerAttention(nn.Module):
         #      tensor.contiguous().view(-1, B * self.nhead, self.head_dim).transpose(0, 1)
         #      for tensor in [query, key, value]
         #  ]  # (B * nhead, Q or KV, head_dim)
-        return reshaped_key + reshaped_value, value, value
         attention_weights = torch.bmm(
-            reshaped_query * scaling, reshaped_key.transpose(1, 2)
+            reshaped_query * scaling, reshaped_key.permute(0, 2, 1)
         )  # (B * nhead, Q, KV)
+        print('attention_weights', attention_weights.shape)
+        return attention_weights, attention_weights, attention_weights
 
         # compute attention probabilities
         attention_probs = self._gen_attention_probs(

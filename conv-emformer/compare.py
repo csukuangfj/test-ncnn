@@ -69,7 +69,7 @@ def main():
             ex.input("in3", ncnn.Mat(states[1].squeeze(1).numpy()).clone())
 
             #  (8, 1, 512) -> (8, 512)
-            ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
+            #  ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
 
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
