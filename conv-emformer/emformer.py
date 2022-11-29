@@ -613,15 +613,21 @@ class EmformerAttention(nn.Module):
             reshaped_query * scaling, reshaped_key.permute(0, 2, 1)
         )  # (B * nhead, Q, KV)
         print('attention_weights', attention_weights.shape)
-        return attention_weights, attention_weights, attention_weights
+        #  return attention_weights, attention_weights, attention_weights
 
         # compute attention probabilities
-        attention_probs = self._gen_attention_probs(
-            attention_weights, attention_mask, padding_mask
-        )
+        if False:
+            attention_probs = self._gen_attention_probs(
+                attention_weights, attention_mask, padding_mask
+            )
+        else:
+            attention_probs = nn.functional.softmax(attention_weights, dim=-1)
 
         # compute attention outputs
         attention = torch.bmm(attention_probs, reshaped_value)
+        print('attention', attention_probs.shape, reshaped_value.shape)
+        print(attention.shape)
+        return attention, attention, attention
         assert attention.shape == (B * self.nhead, Q, self.head_dim)
         attention = attention.transpose(0, 1).contiguous().view(Q, B, self.embed_dim)
 
@@ -767,7 +773,7 @@ class EmformerAttention(nn.Module):
 
         # query = [right context, utterance]
         Q = R + U
-        # key, value = [memory, right context, left context, uttrance]
+        # key, value = [memory, right context, left context, utterance]
         KV = M + R + L + U
         attention_mask = torch.zeros(Q, KV).to(
             dtype=torch.bool, device=utterance.device
