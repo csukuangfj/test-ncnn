@@ -915,12 +915,19 @@ class EmformerEncoderLayer(nn.Module):
         2) attention key and value in current chunk's computation, which would
         be resued in next chunk's computation.
         """
+        # attn_cache[0].shape (self.memory_size, 1, 512)
+        # memory.shape (1, 1, 512)
+        # attn_cache[1].shape (self.left_context_length, 1, 512)
+        # attn_cache[2].shape (self.left_context_length, 1, 512)
+        # next_key.shape (self.left_context_length + self.right_context_utterance, 1, 512)
+        # next_value.shape (self.left_context_length + self.right_context_utterance, 1, 512)
         new_memory = torch.cat([attn_cache[0], memory])
+        # TODO(fangjun): Remove torch.cat
         new_key = torch.cat([attn_cache[1], next_key])
         new_val = torch.cat([attn_cache[2], next_val])
-        attn_cache[0] = new_memory[new_memory.size(0) - self.memory_size :]
-        attn_cache[1] = new_key[new_key.size(0) - self.left_context_length :]
-        attn_cache[2] = new_val[new_val.size(0) - self.left_context_length :]
+        attn_cache[0] = new_memory[1:]
+        attn_cache[1] = new_key[-self.left_context_length :]
+        attn_cache[2] = new_val[-self.left_context_length :]
         return attn_cache
 
     def _apply_conv_module_forward(
@@ -1003,9 +1010,13 @@ class EmformerEncoderLayer(nn.Module):
         left_context_val = attn_cache[2]
 
         if self.use_memory:
-            memory = self.summary_op(utterance.permute(1, 2, 0)).permute(2, 0, 1)[
-                :1
-            ]
+            print('utterance', utterance.shape)
+            memory = torch.mean(utterance, dim=0, keepdim=True)
+
+            #  memory = self.summary_op(utterance.permute(1, 2, 0)).permute(2, 0, 1)[
+            #          :1, :, :
+            #  ]
+            print('memory', memory.shape)
         else:
             memory = torch.empty(0).to(dtype=utterance.dtype, device=utterance.device)
         (output_right_context_utterance, next_key, next_val) = self.attention.infer(
@@ -1016,8 +1027,8 @@ class EmformerEncoderLayer(nn.Module):
             left_context_val=left_context_val,
             padding_mask=padding_mask,
         )
-        return output_right_context_utterance, attn_cache
         attn_cache = self._update_attn_cache(next_key, next_val, memory, attn_cache)
+        print('attn_cache', attn_cache[0].shape, attn_cache[1].shape, attn_cache[2].shape)
         return output_right_context_utterance, attn_cache
 
     def forward(
