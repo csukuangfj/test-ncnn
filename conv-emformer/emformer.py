@@ -1163,8 +1163,7 @@ class EmformerEncoderLayer(nn.Module):
 
         # convolution module
         src_conv, conv_cache = self._apply_conv_module_infer(src, R, conv_cache)
-        print('src_conv', src_conv.shape, conv_cache.shape)
-        return src, right_context, attn_cache + [conv_cache]
+        print('src_conv', src_conv.shape, conv_cache.shape, src.shape)
         src = src + self.dropout(src_conv)
 
         # feed forward module
@@ -1177,8 +1176,7 @@ class EmformerEncoderLayer(nn.Module):
         return (
             output_utterance,
             output_right_context,
-            attn_cache,
-            conv_cache,
+            attn_cache + [conv_cache]
         )
 
 
@@ -1600,7 +1598,7 @@ class EmformerEncoder(nn.Module):
             end = start + 4
             cache = states[start:end]
 
-            if layer_idx == 0:
+            if layer_idx == 0 or layer_idx == 1:
                 (
                     output,
                     right_context,

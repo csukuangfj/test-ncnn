@@ -55,24 +55,31 @@ def main():
             x_lens = x_lens.float()
             ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
 
-            for i, s in enumerate(states):
-                if i >= 4:
-                    break
-                name = f"out{i+2}"
-                print(name, states[i].shape)
+            # layer0 in2-in5
+            # layer1 in6-in9
+            num_layers = 2
+            for i in range(num_layers):
+                offset = 2 + i*4
+                print(offset)
+                name = f'in{offset}'
+                print(name, states[i*4].shape)
+                # (32, 1, 512) -> (32, 512)
+                ex.input(name, ncnn.Mat(states[i*4+0].squeeze(1).numpy()).clone())
 
-            # (32, 1, 512) -> (32, 512)
-            ex.input("in2", ncnn.Mat(states[0].squeeze(1).numpy()).clone())
-            print(states[0].shape, states[1].shape)
+                name = f'in{offset+1}'
+                print(name, states[i*4+1].shape)
+                #  (8, 1, 512) -> (8, 512)
+                ex.input(name, ncnn.Mat(states[i*4 + 1].squeeze(1).numpy()).clone())
 
-            #  (8, 1, 512) -> (8, 512)
-            ex.input("in3", ncnn.Mat(states[1].squeeze(1).numpy()).clone())
+                name = f'in{offset+2}'
+                print(name, states[i*4+2].shape)
+                #  (8, 1, 512) -> (8, 512)
+                ex.input(name, ncnn.Mat(states[i*4 + 2].squeeze(1).numpy()).clone())
 
-            #  (8, 1, 512) -> (8, 512)
-            ex.input("in4", ncnn.Mat(states[2].squeeze(1).numpy()).clone())
-
-            #  (1, 512, 2) -> (512, 2)
-            ex.input("in5", ncnn.Mat(states[3].squeeze(0).numpy()).clone())
+                name = f"in{offset+3}"
+                print(name, states[i*4+3].shape)
+                #  (1, 512, 2) -> (512, 2)
+                ex.input(name, ncnn.Mat(states[i*4 + 3].squeeze(0).numpy()).clone())
 
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
@@ -97,7 +104,7 @@ def main():
                 (y_lens - ncnn_y_lens).abs().max()
             )
 
-            for i in range(4):
+            for i in range(4*num_layers):
                 name = f'out{i+2}'
                 print('name', name)
                 ret, ncnn_out_x = ex.extract(name)
