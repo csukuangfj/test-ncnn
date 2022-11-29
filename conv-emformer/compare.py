@@ -57,10 +57,9 @@ def main():
 
             # layer0 in2-in5
             # layer1 in6-in9
-            num_layers = 2
+            num_layers = 3
             for i in range(num_layers):
                 offset = 2 + i*4
-                print(offset)
                 name = f'in{offset}'
                 print(name, states[i*4].shape)
                 # (32, 1, 512) -> (32, 512)
@@ -106,7 +105,6 @@ def main():
 
             for i in range(4*num_layers):
                 name = f'out{i+2}'
-                print('name', name)
                 ret, ncnn_out_x = ex.extract(name)
                 ncnn_out_x = torch.from_numpy(ncnn_out_x.numpy()).clone().long()
                 y_x = next_states[i]
