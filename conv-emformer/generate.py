@@ -64,14 +64,20 @@ class Foo(nn.Module):
 def main():
     num_features = 80
     d_model = 512
+    chunk_length = 32  # before subsampling
+    right_context_length = 8  # before subsampling
+    pad_length = 8 + 2 * 4 + 3
+
     f = Foo(
         num_features=num_features,
         d_model=d_model,
+        chunk_length=chunk_length,
+        right_context_length=right_context_length,
     )
 
     N = 1
 
-    T = 30
+    T = chunk_length + pad_length
     x = torch.rand(N, T, num_features)
     x_lens = torch.tensor([T])
     num_processed_frames = torch.tensor([0])
@@ -82,7 +88,7 @@ def main():
     print("y", y.shape)
     print("y_lens", y_lens)
     m = torch.jit.trace(f, (x, x_lens, num_processed_frames, states))
-    print(m.graph)
+    #  print(m.graph)
     m.save("m.pt")
 
 

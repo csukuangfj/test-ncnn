@@ -62,6 +62,10 @@ def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
 
     return expaned_lengths >= lengths.unsqueeze(1)
 
+class MakePadMask(torch.nn.Module):
+    def forward(self, lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+        return make_pad_mask(lengths, max_len)
+
 
 def unstack_states(
     states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]]
@@ -1041,10 +1045,9 @@ class EmformerEncoderLayer(nn.Module):
         self,
         utterance: torch.Tensor,
         right_context: torch.Tensor,
-        attn_cache: List[torch.Tensor],
-        conv_cache: torch.Tensor,
+        cache: List[torch.Tensor],
         padding_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]:
         """Forward pass for inference.
 
          B: batch size;
@@ -1075,6 +1078,9 @@ class EmformerEncoderLayer(nn.Module):
         """
         R = right_context.size(0)
         src = torch.cat([right_context, utterance])
+        attn_cache = cache[:3]
+        conv_cache = cache[3]
+        return src, right_context, attn_cache + [conv_cache]
 
         # macaron style feed forward module
         src = src + self.dropout(self.feed_forward_macaron(src))
@@ -1213,6 +1219,7 @@ class EmformerEncoder(nn.Module):
         self.chunk_length = chunk_length
         self.memory_size = memory_size
         self.cnn_module_kernel = cnn_module_kernel
+        self.make_pad_mask = MakePadMask()
 
     def _gen_right_context(self, x: torch.Tensor) -> torch.Tensor:
         """Hard copy each chunk's right context and concat them."""
@@ -1474,64 +1481,68 @@ class EmformerEncoder(nn.Module):
                 ), conv_caches[i].shape
 
 
-        right_context = x[-self.right_context_length :]
-        utterance = x[: -self.right_context_length]
+        print(x.shape, self.right_context_length, self.chunk_length)
+        if False:
+            right_context = x[-self.right_context_length :]
+            utterance = x[: -self.right_context_length]
+        else:
+            right_context = x[self.chunk_length:]
+            utterance = x[:self.chunk_length]
+        # lengths = chunk_length + right_context_length
         output_lengths = torch.clamp(lengths - self.right_context_length, min=0)
-        return x, output_lengths, states
 
 
-        # calcualte padding mask to mask out initial zero caches
-        chunk_mask = make_pad_mask(output_lengths).to(x.device)
-        memory_mask = (
-            (
-                (num_processed_frames >> self.shift).view(x.size(1), 1)
-                <= torch.arange(self.memory_size, device=x.device).expand(
-                    x.size(1), self.memory_size
+        if False:
+            # calculate padding mask to mask out initial zero caches
+            chunk_mask = self.make_pad_mask(output_lengths).to(x.device)
+            print(output_lengths, chunk_mask)
+            memory_mask = (
+                (
+                    (num_processed_frames >> self.shift).view(x.size(1), 1)
+                    <= torch.arange(self.memory_size, device=x.device).expand(
+                        x.size(1), self.memory_size
+                    )
+                ).flip(1)
+                if self.use_memory
+                else torch.empty(0).to(dtype=torch.bool, device=x.device)
+            )
+            left_context_mask = (
+                num_processed_frames.view(x.size(1), 1)
+                <= torch.arange(self.left_context_length, device=x.device).expand(
+                    x.size(1), self.left_context_length
                 )
             ).flip(1)
-            if self.use_memory
-            else torch.empty(0).to(dtype=torch.bool, device=x.device)
-        )
-        left_context_mask = (
-            num_processed_frames.view(x.size(1), 1)
-            <= torch.arange(self.left_context_length, device=x.device).expand(
-                x.size(1), self.left_context_length
+            right_context_mask = torch.zeros(
+                x.size(1),
+                self.right_context_length,
+                dtype=torch.bool,
+                device=x.device,
             )
-        ).flip(1)
-        right_context_mask = torch.zeros(
-            x.size(1),
-            self.right_context_length,
-            dtype=torch.bool,
-            device=x.device,
-        )
-        padding_mask = torch.cat(
-            [memory_mask, right_context_mask, left_context_mask, chunk_mask],
-            dim=1,
-        )
+            padding_mask = torch.cat(
+                [memory_mask, right_context_mask, left_context_mask, chunk_mask],
+                dim=1,
+            )
 
         output = utterance
-        output_attn_caches: List[List[torch.Tensor]] = []
-        output_conv_caches: List[torch.Tensor] = []
+        output_states : List[torch.Tensor] = []
         for layer_idx, layer in enumerate(self.emformer_layers):
-            (
-                output,
-                right_context,
-                output_attn_cache,
-                output_conv_cache,
-            ) = layer.infer(
-                output,
-                right_context,
-                padding_mask=padding_mask,
-                attn_cache=attn_caches[layer_idx],
-                conv_cache=conv_caches[layer_idx],
-            )
-            output_attn_caches.append(output_attn_cache)
-            output_conv_caches.append(output_conv_cache)
+            start = layer_idx*4
+            end = start + 4
+            cache = states[start:end]
 
-        output_states: Tuple[List[List[torch.Tensor]], List[torch.Tensor]] = (
-            output_attn_caches,
-            output_conv_caches,
-        )
+            if layer_idx == 0:
+                (
+                    output,
+                    right_context,
+                    output_cache,
+                ) = layer.infer(
+                    output,
+                    right_context,
+                    padding_mask=None,
+                    cache=cache,
+                )
+                output_states.extend(output_cache)
+
         return output, output_lengths, output_states
 
     @torch.jit.export
