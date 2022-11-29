@@ -33,6 +33,7 @@ def main():
     x_lens = torch.tensor([T])
     num_processed_frames = torch.tensor([0])
     states = f.encoder.init_states()
+    num_layers = len(states) // 4
 
     y, y_lens, next_states = m(x, x_lens, num_processed_frames, states)
     y = y.squeeze(1)
@@ -57,7 +58,6 @@ def main():
 
             # layer0 in2-in5
             # layer1 in6-in9
-            num_layers = 9
             for i in range(num_layers):
                 offset = 2 + i*4
                 name = f'in{offset}'
