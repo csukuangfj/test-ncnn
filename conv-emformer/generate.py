@@ -61,6 +61,7 @@ class Foo(nn.Module):
         return y
 
 
+@torch.no_grad()
 def main():
     num_features = 80
     d_model = 512
@@ -74,6 +75,7 @@ def main():
         chunk_length=chunk_length,
         right_context_length=right_context_length,
     )
+    f.eval()
 
     N = 1
 

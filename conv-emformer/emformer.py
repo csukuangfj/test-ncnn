@@ -1080,10 +1080,10 @@ class EmformerEncoderLayer(nn.Module):
         src = torch.cat([right_context, utterance])
         attn_cache = cache[:3]
         conv_cache = cache[3]
-        return src, right_context, attn_cache + [conv_cache]
 
         # macaron style feed forward module
         src = src + self.dropout(self.feed_forward_macaron(src))
+        return src, right_context, attn_cache + [conv_cache]
 
         # emformer attention module
         src_att, attn_cache = self._apply_attention_module_infer(
