@@ -55,13 +55,16 @@ def main():
             x_lens = x_lens.float()
             ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
 
+            ex.input("in2", ncnn.Mat(states[0].squeeze(1).numpy()).clone())
+
             #  num_processed_frames = num_processed_frames.float()
             #  ex.input("in2", ncnn.Mat(num_processed_frames.numpy()).clone())
-            for i, s in enumerate(states):
-                if i >= 4:
-                    break
-                name = f"out{i+2}"
-                ex.input(name, ncnn.Mat(states[i].numpy()).clone())
+            #  for i, s in enumerate(states):
+            #      if i >= 4:
+            #          break
+            #      name = f"out{i+2}"
+            #      print(name, states[i].shape)
+            #      ex.input(name, ncnn.Mat(states[i].numpy()).clone())
 
             ret, ncnn_out0 = ex.extract("out0")
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()

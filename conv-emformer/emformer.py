@@ -577,11 +577,12 @@ class EmformerAttention(nn.Module):
 
         # compute query with [right_context, utterance].
         query = self.emb_to_query(torch.cat([right_context, utterance]))
-        return query, query, query
+        #  return query, query, query
         # compute key and value with [memory, right_context, utterance].
         key, value = self.emb_to_key_value(
             torch.cat([memory, right_context, utterance])
         ).chunk(chunks=2, dim=2)
+        return key + 10 , key + 10, value
 
         if left_context_key is not None and left_context_val is not None:
             # now compute key and value with
