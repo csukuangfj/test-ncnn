@@ -18,7 +18,7 @@ class Foo(nn.Module):
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
         layer_dropout: float = 0.075,
-        cnn_module_kernel: int = 3,
+        cnn_module_kernel: int = 31,
         num_encoder_layers: int = 12,
         left_context_length: int = 32,
         right_context_length: int = 8,

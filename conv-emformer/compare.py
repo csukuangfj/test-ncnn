@@ -77,7 +77,7 @@ def main():
 
                 name = f"in{offset+3}"
                 print(name, states[i*4+3].shape)
-                #  (1, 512, 2) -> (512, 2)
+                #  (1, 512, 30) -> (512, 30)
                 ex.input(name, ncnn.Mat(states[i*4 + 3].squeeze(0).numpy()).clone())
 
             #  num_processed_frames = num_processed_frames.float()
@@ -106,7 +106,7 @@ def main():
             for i in range(4*num_layers):
                 name = f'out{i+2}'
                 ret, ncnn_out_x = ex.extract(name)
-                ncnn_out_x = torch.from_numpy(ncnn_out_x.numpy()).clone().long()
+                ncnn_out_x = torch.from_numpy(ncnn_out_x.numpy())
                 y_x = next_states[i]
                 print(name, ncnn_out_x.shape, y_x.shape)
 
