@@ -25,10 +25,12 @@ import warnings
 from typing import List, Optional, Tuple, Union
 
 import torch
+from torch import Tensor, nn
+
 from encoder_interface import EncoderInterface
 from scaling import (
-    ScaledLinear,  # not as in other dirs.. just scales down initial parameter values.
-)
+    ScaledLinear,
+)  # not as in other dirs.. just scales down initial parameter values.
 from scaling import (
     ActivationBalancer,
     BasicNorm,
@@ -42,10 +44,70 @@ from scaling import (
     random_clamp,
     softmax,
 )
-from torch import Tensor, nn
 
-from icefall.dist import get_rank
-from icefall.utils import make_pad_mask, subsequent_chunk_mask
+
+# Copied and modified from https://github.com/wenet-e2e/wenet/blob/main/wenet/utils/mask.py
+def subsequent_chunk_mask(
+    size: int,
+    chunk_size: int,
+    num_left_chunks: int = -1,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    """Create mask for subsequent steps (size, size) with chunk size,
+       this is for streaming encoder
+    Args:
+        size (int): size of mask
+        chunk_size (int): size of chunk
+        num_left_chunks (int): number of left chunks
+            <0: use full chunk
+            >=0: use num_left_chunks
+        device (torch.device): "cpu" or "cuda" or torch.Tensor.device
+    Returns:
+        torch.Tensor: mask
+    Examples:
+        >>> subsequent_chunk_mask(4, 2)
+        [[1, 1, 0, 0],
+         [1, 1, 0, 0],
+         [1, 1, 1, 1],
+         [1, 1, 1, 1]]
+    """
+    ret = torch.zeros(size, size, device=device, dtype=torch.bool)
+    for i in range(size):
+        if num_left_chunks < 0:
+            start = 0
+        else:
+            start = max((i // chunk_size - num_left_chunks) * chunk_size, 0)
+        ending = min((i // chunk_size + 1) * chunk_size, size)
+        ret[i, start:ending] = True
+    return ret
+
+
+def make_pad_mask(lengths: torch.Tensor, max_len: int = 0) -> torch.Tensor:
+    """
+    Args:
+      lengths:
+        A 1-D tensor containing sentence lengths.
+      max_len:
+        The length of masks.
+    Returns:
+      Return a 2-D bool tensor, where masked positions
+      are filled with `True` and non-masked positions are
+      filled with `False`.
+
+    >>> lengths = torch.tensor([1, 3, 2, 5])
+    >>> make_pad_mask(lengths)
+    tensor([[False,  True,  True,  True,  True],
+            [False, False, False,  True,  True],
+            [False, False,  True,  True,  True],
+            [False, False, False, False, False]])
+    """
+    assert lengths.ndim == 1, lengths.ndim
+    max_len = max(max_len, lengths.max())
+    n = lengths.size(0)
+
+    expaned_lengths = torch.arange(max_len).expand(n, max_len).to(lengths)
+
+    return expaned_lengths >= lengths.unsqueeze(1)
 
 
 def stack_states(state_list: List[List[Tensor]]) -> List[Tensor]:
