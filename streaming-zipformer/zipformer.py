@@ -359,6 +359,7 @@ class Zipformer(EncoderInterface):
         is_pnnx: bool = False,
     ) -> None:
         super(Zipformer, self).__init__()
+        self.is_pnnx = is_pnnx
 
         self.num_features = num_features
         assert 0 < encoder_dims[0] <= encoder_dims[1]
@@ -636,7 +637,7 @@ class Zipformer(EncoderInterface):
         x_lens: torch.Tensor,
         states: List[Tensor],
     #  ) -> Tuple[Tensor, Tensor, List[Tensor]]:
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """
         Args:
           x:
@@ -673,10 +674,15 @@ class Zipformer(EncoderInterface):
         cached_conv2 = states[6 * self.num_encoders : 7 * self.num_encoders]
 
         x = self.encoder_embed(x)
-        return x
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
-        lengths = (x_lens - 7) >> 1
+        if not self.is_pnnx:
+            lengths = (x_lens - 7) >> 1
+        else:
+            lengths = torch.floor((x_lens - 7) / 2)
+            lengths = lengths.to(x_lens)
+
         assert x.size(0) == lengths.max().item(), (x.shape, lengths, lengths.max())
+        return x, lengths
 
         outputs = []
         new_cached_len = []
