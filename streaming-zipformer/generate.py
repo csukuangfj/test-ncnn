@@ -27,6 +27,7 @@ def get_encoder_model() -> nn.Module:
         num_left_chunks=4,
         short_chunk_size=50,
         decode_chunk_size=(32 // 2),
+        is_pnnx=True,
     )
 
     # Here, we replace forward with streaming_forward

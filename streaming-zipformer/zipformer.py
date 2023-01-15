@@ -356,6 +356,7 @@ class Zipformer(EncoderInterface):
         short_chunk_size: int = 50,
         decode_chunk_size: int = 16,
         warmup_batches: float = 4000.0,
+        is_pnnx: bool = False,
     ) -> None:
         super(Zipformer, self).__init__()
 
@@ -386,7 +387,7 @@ class Zipformer(EncoderInterface):
         #   (1) subsampling: T -> (T - 7)//2
         #   (2) embedding: num_features -> encoder_dims
         self.encoder_embed = Conv2dSubsampling(
-            num_features, encoder_dims[0], dropout=dropout
+            num_features, encoder_dims[0], dropout=dropout, is_pnnx=is_pnnx
         )
 
         # each one will be ZipformerEncoder or DownsampledZipformerEncoder
@@ -634,7 +635,8 @@ class Zipformer(EncoderInterface):
         x: torch.Tensor,
         x_lens: torch.Tensor,
         states: List[Tensor],
-    ) -> Tuple[Tensor, Tensor, List[Tensor]]:
+    #  ) -> Tuple[Tensor, Tensor, List[Tensor]]:
+    ) -> Tensor:
         """
         Args:
           x:
@@ -671,6 +673,7 @@ class Zipformer(EncoderInterface):
         cached_conv2 = states[6 * self.num_encoders : 7 * self.num_encoders]
 
         x = self.encoder_embed(x)
+        return x
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
         lengths = (x_lens - 7) >> 1
         assert x.size(0) == lengths.max().item(), (x.shape, lengths, lengths.max())
@@ -2780,6 +2783,7 @@ class Conv2dSubsampling(nn.Module):
         layer2_channels: int = 32,
         layer3_channels: int = 128,
         dropout: float = 0.1,
+        is_pnnx: bool = False,
     ) -> None:
         """
         Args:
@@ -2794,6 +2798,9 @@ class Conv2dSubsampling(nn.Module):
             Number of channels in layer2
           layer3_channels:
             Number of channels in layer3
+          is_pnnx:
+            True if we are converting the model to PNNX format.
+            False otherwise.
         """
         assert in_channels >= 7, in_channels
         super().__init__()
@@ -2805,6 +2812,7 @@ class Conv2dSubsampling(nn.Module):
                 kernel_size=3,
                 padding=(0, 1),  # (time, freq)
             ),
+            # After this layer (N, 1, T, C) -> (N, layer1_channels, T-2, C)
             ActivationBalancer(layer1_channels, channel_dim=1),
             DoubleSwish(),
             nn.Conv2d(
@@ -2814,6 +2822,9 @@ class Conv2dSubsampling(nn.Module):
                 stride=2,
                 padding=0,
             ),
+            # After this layer (N, layer1_channels, T-2, C) -> (N, layer2_channels, ((T-2) - 3)//2+1, (C-3)//2+1)
+            # i.e., (N, layer2_channels, (T-5)//2+1, (C-3)//2+1)
+            # i.e., (N, layer2_channels, (T-3)//2, (C-1)//2)
             ActivationBalancer(layer2_channels, channel_dim=1),
             DoubleSwish(),
             nn.Conv2d(
@@ -2822,12 +2833,20 @@ class Conv2dSubsampling(nn.Module):
                 kernel_size=3,
                 stride=(1, 2),  # (time, freq)
             ),
+            # After this layer, (N, layer2_channels, (T-3)//2, (C-1)//2)
+            # ->
+            # (N, layer3_channels, (T-3)//2-2, ((C-1)//2 - 3)//2 + 1)
+            # (N, layer3_channels, (T-7)//2, (C-3)//4)
             ActivationBalancer(layer3_channels, channel_dim=1),
             DoubleSwish(),
         )
         out_height = (((in_channels - 1) // 2) - 1) // 2
         self.out = ScaledLinear(out_height * layer3_channels, out_channels)
         self.dropout = nn.Dropout(dropout)
+
+        # ncnn supports only batch size == 1
+        self.is_pnnx = is_pnnx
+        self.conv_out_dim = self.out.weight.shape[1]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Subsample x.
@@ -2842,9 +2861,14 @@ class Conv2dSubsampling(nn.Module):
         # On entry, x is (N, T, idim)
         x = x.unsqueeze(1)  # (N, T, idim) -> (N, 1, T, idim) i.e., (N, C, H, W)
         x = self.conv(x)
-        # Now x is of shape (N, odim, (T-7)//2, ((idim-1)//2 - 1)//2)
-        b, c, t, f = x.size()
-        x = self.out(x.transpose(1, 2).reshape(b, t, c * f))
+
+        if torch.jit.is_tracing() and self.is_pnnx:
+            x = x.permute(0, 2, 1, 3).reshape(1, -1, self.conv_out_dim)
+            x = self.out(x)
+        else:
+            # Now x is of shape (N, odim, (T-7)//2, ((idim-1)//2 - 1)//2)
+            b, c, t, f = x.size()
+            x = self.out(x.transpose(1, 2).reshape(b, t, c * f))
         # Now x is of shape (N, (T-7)//2, odim)
         x = self.dropout(x)
         return x
