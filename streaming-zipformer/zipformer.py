@@ -2643,7 +2643,7 @@ class PoolingModule(nn.Module):
             cached_avg = x[-1]
 
         print('project')
-        x = self.proj(x) + 100
+        x = self.proj(x)
         return x, cached_len, cached_avg
 
 
