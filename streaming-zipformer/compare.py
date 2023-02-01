@@ -60,7 +60,7 @@ def main():
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
 
-            print(y.shape, ncnn_y.shape)
+            print("shape", y.shape, ncnn_y.shape)
             assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
             assert torch.eq(y_lens, ncnn_y_lens), (y_lens, ncnn_y_lens)
 

@@ -333,8 +333,8 @@ class Zipformer(EncoderInterface):
         num_encoder_layers (int): number of encoder layers
         dropout (float): dropout rate
         cnn_module_kernel (int): Kernel size of convolution module
-        vgg_frontend (bool): whether to use vgg frontend.
         warmup_batches (float): number of batches to warm up over
+        is_pnnx (bool): True if we are going to convert this model via pnnx.
     """
 
     def __init__(
@@ -375,6 +375,9 @@ class Zipformer(EncoderInterface):
         # Used in decoding
         self.decode_chunk_size = decode_chunk_size
 
+        self.left_context_len = self.decode_chunk_size * self.num_left_chunks
+        print('left_context_len', self.left_context_len) # 16 * 4 =  64
+
         # will be written to, see set_batch_count()
         self.batch_count = 0
         self.warmup_end = warmup_batches
@@ -396,6 +399,7 @@ class Zipformer(EncoderInterface):
 
         self.num_encoders = len(encoder_dims)
         for i in range(self.num_encoders):
+            ds = zipformer_downsampling_factors[i]
             encoder_layer = ZipformerEncoderLayer(
                 encoder_dims[i],
                 attention_dim[i],
@@ -414,6 +418,9 @@ class Zipformer(EncoderInterface):
                 dropout,
                 warmup_begin=warmup_batches * (i + 1) / (self.num_encoders + 1),
                 warmup_end=warmup_batches * (i + 2) / (self.num_encoders + 1),
+                is_pnnx=is_pnnx,
+                left_context_len=self.left_context_len//ds,
+                x_size=self.decode_chunk_size//ds,
             )
 
             if zipformer_downsampling_factors[i] != 1:
@@ -447,9 +454,9 @@ class Zipformer(EncoderInterface):
     def _init_skip_modules(self):
         """
         If self.zipformer_downampling_factors = (1, 2, 4, 8, 4, 2), then at the input of layer
-        indexed 4 (in zero indexing), with has subsapling_factor=4, we combine the output of
-        layers 2 and 3; and at the input of layer indexed 5, which which has subsampling_factor=2,
-        we combine the outputs of layers 1 and 5.
+        indexed 4 (in zero indexing), which has subsampling_factor=4, we combine the output of
+        layers 2 and 3; and at the input of layer indexed 5, which has subsampling_factor=2,
+        we combine the outputs of layers 1 and 4.
         """
         skip_layers = []
         skip_modules = []
@@ -682,7 +689,6 @@ class Zipformer(EncoderInterface):
             lengths = lengths.to(x_lens)
 
         assert x.size(0) == lengths.max().item(), (x.shape, lengths, lengths.max())
-        return x, lengths
 
         outputs = []
         new_cached_len = []
@@ -709,6 +715,7 @@ class Zipformer(EncoderInterface):
                 cached_conv1=cached_conv1[i],
                 cached_conv2=cached_conv2[i],
             )
+            return x, lengths
             outputs.append(x)
             # Update caches
             new_cached_len.append(len_avg)
@@ -760,8 +767,6 @@ class Zipformer(EncoderInterface):
         cached_conv1 = []
         cached_conv2 = []
 
-        left_context_len = self.decode_chunk_size * self.num_left_chunks
-
         for i, encoder in enumerate(self.encoders):
             num_layers = encoder.num_layers
             ds = self.zipformer_downsampling_factors[i]
@@ -774,7 +779,7 @@ class Zipformer(EncoderInterface):
 
             key = torch.zeros(
                 num_layers,
-                left_context_len // ds,
+                self.left_context_len // ds,
                 1,
                 encoder.attention_dim,
                 device=device,
@@ -783,7 +788,7 @@ class Zipformer(EncoderInterface):
 
             val = torch.zeros(
                 num_layers,
-                left_context_len // ds,
+                self.left_context_len // ds,
                 1,
                 encoder.attention_dim // 2,
                 device=device,
@@ -792,7 +797,7 @@ class Zipformer(EncoderInterface):
 
             val2 = torch.zeros(
                 num_layers,
-                left_context_len // ds,
+                self.left_context_len // ds,
                 1,
                 encoder.attention_dim // 2,
                 device=device,
@@ -1161,6 +1166,9 @@ class ZipformerEncoder(nn.Module):
         dropout: float,
         warmup_begin: float,
         warmup_end: float,
+        is_pnnx: bool = False,
+        x_size: int = 0,
+        left_context_len : int = 0,
     ) -> None:
         super().__init__()
         # will be written to, see set_batch_count() Note: in inference time this
@@ -1173,8 +1181,13 @@ class ZipformerEncoder(nn.Module):
         # shared across jobs.   It's used to randomly select how many layers to drop,
         # so that we can keep this consistent across worker tasks (for efficiency).
         self.module_seed = torch.randint(0, 1000, ()).item()
+        self.left_context_len = left_context_len
 
-        self.encoder_pos = RelPositionalEncoding(encoder_layer.d_model, dropout)
+        self.encoder_pos = RelPositionalEncoding(encoder_layer.d_model, dropout,
+                is_pnnx=is_pnnx,
+                x_size=x_size,
+                left_context_len=left_context_len
+                )
 
         self.layers = nn.ModuleList(
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
@@ -1338,8 +1351,7 @@ class ZipformerEncoder(nn.Module):
 
         Shape:
             src: (S, N, E).
-            cached_len: (N,)
-              N is the batch size.
+            cached_len: (num_layers,)
             cached_avg: (num_layers, N, C).
               N is the batch size, C is the feature dimension.
             cached_key: (num_layers, left_context_len, N, K).
@@ -1355,8 +1367,8 @@ class ZipformerEncoder(nn.Module):
 
         Returns: A tuple of 8 tensors:
             - output tensor
-            - updated cached number of past frmaes.
-            - updated cached average of past frmaes.
+            - updated cached number of past frames.
+            - updated cached average of past frames.
             - updated cached key tensor of of the first attention module.
             - updated cached value tensor of of the first attention module.
             - updated cached value tensor of of the second attention module.
@@ -1392,8 +1404,15 @@ class ZipformerEncoder(nn.Module):
             self.num_layers,
         )
 
-        left_context_len = cached_key.shape[1]
+        assert self.left_context_len == cached_key.shape[1], (self.left_context_len, cached_key.shape[1])
+
+
+
+        left_context_len = self.left_context_len
         pos_emb = self.encoder_pos(src, left_context_len)
+
+        #  return src, cached_len, cached_avg, cached_key, cached_val, cached_val2, cached_conv1, cached_conv2
+        return pos_emb + src.sum(), cached_len, cached_avg, cached_key, cached_val, cached_val2, cached_conv1, cached_conv2
         output = src
 
         new_cached_len = []
@@ -1739,13 +1758,25 @@ class RelPositionalEncoding(torch.nn.Module):
         d_model: int,
         dropout_rate: float,
         max_len: int = 5000,
+        is_pnnx: bool = False,
+        x_size: int = 0,
+        left_context_len: int = 0,
     ) -> None:
         """Construct a PositionalEncoding object."""
         super(RelPositionalEncoding, self).__init__()
         self.d_model = d_model
         self.dropout = torch.nn.Dropout(dropout_rate)
+        self.is_pnnx = is_pnnx
+        self.x_size = x_size
+        self.left_context_len = left_context_len
         self.pe = None
-        self.extend_pe(torch.tensor(0.0).expand(max_len))
+        if is_pnnx:
+            x_size_left = x_size + left_context_len
+            self.extend_pe(torch.tensor(0.0).expand(x_size_left))
+            self.pe = self.pe[:, :-left_context_len]
+            assert self.pe.size(1) == x_size + left_context_len - 1 + x_size, (self.pe.size(1), x_size, left_context_len, x_size, self.pe.shape)
+        else:
+            self.extend_pe(torch.tensor(0.0).expand(max_len))
 
     def extend_pe(self, x: Tensor, left_context_len: int = 0) -> None:
         """Reset the positional encodings."""
@@ -1758,7 +1789,7 @@ class RelPositionalEncoding(torch.nn.Module):
                 if self.pe.dtype != x.dtype or str(self.pe.device) != str(x.device):
                     self.pe = self.pe.to(dtype=x.dtype, device=x.device)
                 return
-        # Suppose `i` means to the position of query vecotr and `j` means the
+        # Suppose `i` means to the position of query vector and `j` means the
         # position of key vector. We use position relative positions when keys
         # are to the left (i>j) and negative relative positions otherwise (i<j).
         pe_positive = torch.zeros(x_size_left, self.d_model)
@@ -1792,6 +1823,11 @@ class RelPositionalEncoding(torch.nn.Module):
             torch.Tensor: Encoded tensor (batch, left_context_len + 2*time-1, `*`).
 
         """
+        if self.is_pnnx:
+            assert self.x_size == x.size(0), (self.x_size, x.size(0))
+            assert self.left_context_len == left_context_len, (self.left_context_len, left_context_len)
+            return self.pe
+
         self.extend_pe(x, left_context_len)
         x_size_left = x.size(0) + left_context_len
         pos_emb = self.pe[
