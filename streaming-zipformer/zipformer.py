@@ -1080,9 +1080,22 @@ class ZipformerEncoderLayer(nn.Module):
               N is the batch size, C is the convolution channels.
         """
         src_orig = src
+        print('here')
+
 
         # macaron style feed forward module
         src = src + self.feed_forward1(src)
+
+        return (
+            src,
+            cached_len,
+            cached_avg,
+            cached_key,
+            cached_val,
+            cached_val2,
+            cached_conv1,
+            cached_conv2,
+        )
 
         src_pool, cached_len, cached_avg = self.pooling.streaming_forward(
             src,
@@ -1412,7 +1425,6 @@ class ZipformerEncoder(nn.Module):
         pos_emb = self.encoder_pos(src, left_context_len)
 
         #  return src, cached_len, cached_avg, cached_key, cached_val, cached_val2, cached_conv1, cached_conv2
-        return pos_emb + src.sum(), cached_len, cached_avg, cached_key, cached_val, cached_val2, cached_conv1, cached_conv2
         output = src
 
         new_cached_len = []
@@ -1442,6 +1454,17 @@ class ZipformerEncoder(nn.Module):
             new_cached_val2.append(val2)
             new_cached_conv1.append(conv1)
             new_cached_conv2.append(conv2)
+
+            return (
+                output,
+                torch.stack(new_cached_len, dim=0),
+                torch.stack(new_cached_avg, dim=0),
+                torch.stack(new_cached_key, dim=0),
+                torch.stack(new_cached_val, dim=0),
+                torch.stack(new_cached_val2, dim=0),
+                torch.stack(new_cached_conv1, dim=0),
+                torch.stack(new_cached_conv2, dim=0),
+            )
 
         return (
             output,
@@ -2605,7 +2628,7 @@ class PoolingModule(nn.Module):
         """
         x = x.cumsum(dim=0)  # (T, N, C)
         x = x + (cached_avg * cached_len.unsqueeze(1)).unsqueeze(0)
-        # Cumulated numbers of frames from start
+        # Accumulated numbers of frames from start
         cum_mask = torch.arange(1, x.size(0) + 1, device=x.device)
         cum_mask = cum_mask.unsqueeze(1) + cached_len.unsqueeze(0)  # (T, N)
         pooling_mask = (1.0 / cum_mask).unsqueeze(2)

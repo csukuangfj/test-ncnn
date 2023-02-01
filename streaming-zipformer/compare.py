@@ -34,6 +34,15 @@ def main():
     print("y", y.shape)  # (1, 16, 384)
     print("y_lens", y_lens)
 
+    """
+[1, 39, 80]
+after subsampling,
+[1, 16, 384]
+
+left_context_len: 64, chunk size 16
+2*16 + 64 - 1 = 95, rel positional encoding: pe.shape [1, 95, 384]
+    """
+
     y = y.squeeze(0)
 
     param = "m.ncnn.param"
@@ -60,9 +69,12 @@ def main():
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
 
+            y = y.squeeze()
             print("shape", y.shape, ncnn_y.shape)
             assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
+            print("y\n", y.reshape(-1)[:10], "\n", ncnn_y.reshape(-1)[:10])
             assert torch.eq(y_lens, ncnn_y_lens), (y_lens, ncnn_y_lens)
+            print("lens", y_lens, ncnn_y_lens)
 
 
 if __name__ == "__main__":
