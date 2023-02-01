@@ -74,7 +74,7 @@ def main():
 
     m = torch.jit.trace(f, (x, x_lens, states))
     #  print(m.graph)
-    #  print(m.inlined_graph)
+    print(m.inlined_graph)
     m.save("m.pt")
 
 
