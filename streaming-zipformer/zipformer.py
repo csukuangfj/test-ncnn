@@ -376,7 +376,7 @@ class Zipformer(EncoderInterface):
         self.decode_chunk_size = decode_chunk_size
 
         self.left_context_len = self.decode_chunk_size * self.num_left_chunks
-        print('left_context_len', self.left_context_len) # 16 * 4 =  64
+        print("left_context_len", self.left_context_len)  # 16 * 4 =  64
 
         # will be written to, see set_batch_count()
         self.batch_count = 0
@@ -408,6 +408,9 @@ class Zipformer(EncoderInterface):
                 dropout,
                 cnn_module_kernels[i],
                 pos_dim,
+                is_pnnx=self.is_pnnx,
+                left_context_len=self.left_context_len // ds,
+                x_size=self.decode_chunk_size // ds,
             )
 
             # For the segment of the warmup period, we let the Conv2dSubsampling
@@ -419,8 +422,8 @@ class Zipformer(EncoderInterface):
                 warmup_begin=warmup_batches * (i + 1) / (self.num_encoders + 1),
                 warmup_end=warmup_batches * (i + 2) / (self.num_encoders + 1),
                 is_pnnx=is_pnnx,
-                left_context_len=self.left_context_len//ds,
-                x_size=self.decode_chunk_size//ds,
+                left_context_len=self.left_context_len // ds,
+                x_size=self.decode_chunk_size // ds,
             )
 
             if zipformer_downsampling_factors[i] != 1:
@@ -643,7 +646,7 @@ class Zipformer(EncoderInterface):
         x: torch.Tensor,
         x_lens: torch.Tensor,
         states: List[Tensor],
-    #  ) -> Tuple[Tensor, Tensor, List[Tensor]]:
+        #  ) -> Tuple[Tensor, Tensor, List[Tensor]]:
     ) -> Tuple[Tensor, Tensor]:
         """
         Args:
@@ -861,6 +864,9 @@ class ZipformerEncoderLayer(nn.Module):
         dropout: float = 0.1,
         cnn_module_kernel: int = 31,
         pos_dim: int = 4,
+        is_pnnx: bool = False,
+        left_context_len: int = 0,
+        x_size: int = 0,
     ) -> None:
         super(ZipformerEncoderLayer, self).__init__()
 
@@ -877,6 +883,9 @@ class ZipformerEncoderLayer(nn.Module):
             nhead,
             pos_dim,
             dropout=0.0,
+            is_pnnx=is_pnnx,
+            left_context_len=left_context_len,
+            x_size=x_size,
         )
 
         self.pooling = PoolingModule(d_model)
@@ -1080,8 +1089,7 @@ class ZipformerEncoderLayer(nn.Module):
               N is the batch size, C is the convolution channels.
         """
         src_orig = src
-        print('here')
-
+        print("here")
 
         # macron style feed forward module
         src = src + self.feed_forward1(src)
@@ -1093,19 +1101,6 @@ class ZipformerEncoderLayer(nn.Module):
         )
         src = src + src_pool
 
-        return (
-            src,
-            cached_len,
-            cached_avg,
-            cached_key,
-            cached_val,
-            cached_val2,
-            cached_conv1,
-            cached_conv2,
-        )
-
-
-
         (
             src_attn,
             attn_weights,
@@ -1116,6 +1111,18 @@ class ZipformerEncoderLayer(nn.Module):
             pos_emb=pos_emb,
             cached_key=cached_key,
             cached_val=cached_val,
+        )
+
+        return (
+            #  src,
+            src_attn,
+            cached_len,
+            cached_avg,
+            cached_key,
+            cached_val,
+            cached_val2,
+            cached_conv1,
+            cached_conv2,
         )
         src = src + src_attn
 
@@ -1183,7 +1190,7 @@ class ZipformerEncoder(nn.Module):
         warmup_end: float,
         is_pnnx: bool = False,
         x_size: int = 0,
-        left_context_len : int = 0,
+        left_context_len: int = 0,
     ) -> None:
         super().__init__()
         # will be written to, see set_batch_count() Note: in inference time this
@@ -1198,11 +1205,13 @@ class ZipformerEncoder(nn.Module):
         self.module_seed = torch.randint(0, 1000, ()).item()
         self.left_context_len = left_context_len
 
-        self.encoder_pos = RelPositionalEncoding(encoder_layer.d_model, dropout,
-                is_pnnx=is_pnnx,
-                x_size=x_size,
-                left_context_len=left_context_len
-                )
+        self.encoder_pos = RelPositionalEncoding(
+            encoder_layer.d_model,
+            dropout,
+            is_pnnx=is_pnnx,
+            x_size=x_size,
+            left_context_len=left_context_len,
+        )
 
         self.layers = nn.ModuleList(
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
@@ -1419,9 +1428,10 @@ class ZipformerEncoder(nn.Module):
             self.num_layers,
         )
 
-        assert self.left_context_len == cached_key.shape[1], (self.left_context_len, cached_key.shape[1])
-
-
+        assert self.left_context_len == cached_key.shape[1], (
+            self.left_context_len,
+            cached_key.shape[1],
+        )
 
         left_context_len = self.left_context_len
         pos_emb = self.encoder_pos(src, left_context_len)
@@ -1799,7 +1809,13 @@ class RelPositionalEncoding(torch.nn.Module):
             x_size_left = x_size + left_context_len
             self.extend_pe(torch.tensor(0.0).expand(x_size_left))
             self.pe = self.pe[:, :-left_context_len]
-            assert self.pe.size(1) == x_size + left_context_len - 1 + x_size, (self.pe.size(1), x_size, left_context_len, x_size, self.pe.shape)
+            assert self.pe.size(1) == x_size + left_context_len - 1 + x_size, (
+                self.pe.size(1),
+                x_size,
+                left_context_len,
+                x_size,
+                self.pe.shape,
+            )
         else:
             self.extend_pe(torch.tensor(0.0).expand(max_len))
 
@@ -1850,7 +1866,10 @@ class RelPositionalEncoding(torch.nn.Module):
         """
         if self.is_pnnx:
             assert self.x_size == x.size(0), (self.x_size, x.size(0))
-            assert self.left_context_len == left_context_len, (self.left_context_len, left_context_len)
+            assert self.left_context_len == left_context_len, (
+                self.left_context_len,
+                left_context_len,
+            )
             return self.pe
 
         self.extend_pe(x, left_context_len)
@@ -1892,6 +1911,9 @@ class RelPositionMultiheadAttention(nn.Module):
         num_heads: int,
         pos_dim: int,
         dropout: float = 0.0,
+        is_pnnx: bool = False,
+        left_context_len: int = 0,
+        x_size: int = 0,
     ) -> None:
         super(RelPositionMultiheadAttention, self).__init__()
         self.embed_dim = embed_dim
@@ -1907,13 +1929,17 @@ class RelPositionMultiheadAttention(nn.Module):
             attention_dim,
         )
 
+        self.is_pnnx = is_pnnx
+        self.left_context_len = left_context_len
+        self.x_size = x_size
+
         # the initial_scale is supposed to take over the "scaling" factor of
         # head_dim ** -0.5, dividing it between the query and key.
         in_proj_dim = (
             2 * attention_dim
-            + attention_dim // 2  # query, key
-            + pos_dim * num_heads  # value
-        )  # positional encoding query
+            + attention_dim // 2  # query (attention_dim,), key (attention_dim,)
+            + pos_dim * num_heads  # value (attention_dim // 2,)
+        )  # positional encoding query (pos_dim * num_heads, )
 
         self.in_proj = ScaledLinear(
             embed_dim, in_proj_dim, bias=True, initial_scale=self.head_dim**-0.25
@@ -2029,8 +2055,6 @@ class RelPositionMultiheadAttention(nn.Module):
         Args:
             x: input to be projected to query, key, value
             pos_emb: Positional embedding tensor
-            attn_mask: 2D or 3D mask that prevents attention to certain positions. A 2D mask will be broadcasted for all
-                the batches while a 3D mask allows to specify a different mask for the entries of each batch.
 
         Shape:
             - Inputs:
@@ -2038,13 +2062,6 @@ class RelPositionMultiheadAttention(nn.Module):
             the embedding dimension.
             - pos_emb: :math:`(N, 2*L-1, E)` where L is the target sequence length, N is the batch size, E is
             the embedding dimension.
-            - attn_mask: 2D mask :math:`(L, S)` where L is the target sequence length, S is the source sequence length.
-            3D mask :math:`(N*num_heads, L, S)` where N is the batch size, L is the target sequence length,
-            S is the source sequence length. attn_mask ensure that position i is allowed to attend the unmasked
-            positions. If a ByteTensor is provided, the non-zero positions are not allowed to attend
-            while the zero positions will be unchanged. If a BoolTensor is provided, positions with ``True``
-            is not allowed to attend while ``False`` values will be unchanged. If a FloatTensor
-            is provided, it will be added to the attention weight.
             - cached_key: :math:`(left_context_len, N, K)`, where N is the batch size, K is the key dimension.
             - cached_val: :math:`(left_context_len, N, V)`, where N is the batch size, V is the value dimension.
 
@@ -2356,7 +2373,11 @@ class RelPositionMultiheadAttention(nn.Module):
             - cached_val: :math:`(left_context_len, N, K)`, updated cached attention value tensor of left context.
         """
 
-        seq_len, bsz, _ = x_proj.size()
+        if not self.is_pnnx:
+            seq_len, bsz, _ = x_proj.size()
+        else:
+            seq_len = self.x_size
+            bsz = 1
 
         head_dim = attention_dim // num_heads
         pos_dim = self.pos_dim  # positional-encoding dim per head
@@ -2365,33 +2386,71 @@ class RelPositionMultiheadAttention(nn.Module):
         ), f"attention_dim must be divisible by num_heads: {head_dim}, {num_heads}, {attention_dim}"
 
         # self-attention
-        q = x_proj[..., 0:attention_dim]
-        k = x_proj[..., attention_dim : 2 * attention_dim]
+        q = x_proj[:, :, 0:attention_dim]  # (x_size, N, attention_dim)
+        k = x_proj[:, :, attention_dim : 2 * attention_dim]
+        # k is (x_size, N, attention_dim)
         value_dim = attention_dim // 2
-        v = x_proj[..., 2 * attention_dim : 2 * attention_dim + value_dim]
-        # p is the position-encoding query, its dimension is num_heads*pos_dim..
-        p = x_proj[..., 2 * attention_dim + value_dim :]
+        v = x_proj[:, :, 2 * attention_dim : 2 * attention_dim + value_dim]
+        # v is (x_size, 0, attention_dim//2)
 
-        left_context_len = cached_key.shape[0]
+        # p is the position-encoding query, its dimension is num_heads*pos_dim..
+        p = x_proj[:, :, 2 * attention_dim + value_dim :]
+        # p is (x_size, N, pos_dim * num_heads)
+
+        if not self.is_pnnx:
+            left_context_len = cached_key.shape[0]
+        else:
+            assert cached_key.shape[0] == self.left_context_len, (
+                cached_key.shape,
+                self.left_context_len,
+            )
+            left_context_len = self.left_context_len
+
         assert left_context_len > 0, left_context_len
         assert cached_key.shape[0] == cached_val.shape[0], (
             cached_key.shape,
             cached_val.shape,
         )
+        # Note: We need to fix the Concat in ncnn
+        # cached_key is (1, 64, 192) in ncnn
+        # k is (16, 192) in ncnn
         # Pad cached left contexts
         k = torch.cat([cached_key, k], dim=0)
-        v = torch.cat([cached_val, v], dim=0)
-        # Update cached left contexts
-        cached_key = k[-left_context_len:, ...]
-        cached_val = v[-left_context_len:, ...]
+        # (left_context_len + x_size, N, attention_dim)
 
-        # The length of key and value
-        kv_len = k.shape[0]
+        v = torch.cat([cached_val, v], dim=0)
+        # v: (left_context_len + x_size, N, attention_dim)
+        # Update cached left contexts
+        return v + k.sum(), q.mean(), q.max(), q.min()
+        if not self.is_pnnx:
+            cached_key = k[-left_context_len:, ...]
+            cached_val = v[-left_context_len:, ...]
+        else:
+            cached_key = k[self.x_size :]
+            cached_val = v[self.x_size :]
+            assert cached_key.shape[0] == left_context_len, (
+                cached_key.shape,
+                left_context_len,
+            )
+            assert cached_val.shape[0] == left_context_len, (
+                cached_val.shape,
+                left_context_len,
+            )
+
+        if not self.is_pnnx:
+            # The length of key and value
+            kv_len = k.shape[0]
+        else:
+            kv_len = left_context_len + self.x_size
+            assert kv_len == k.shape[0], (kv_len, k.shape)
 
         q = q.reshape(seq_len, bsz, num_heads, head_dim)
         p = p.reshape(seq_len, bsz, num_heads, pos_dim)
         k = k.reshape(kv_len, bsz, num_heads, head_dim)
-        v = v.reshape(kv_len, bsz * num_heads, head_dim // 2).transpose(0, 1)
+        if not self.is_pnnx:
+            v = v.reshape(kv_len, bsz * num_heads, head_dim // 2).transpose(0, 1)
+        else:
+            v = v.reshape(kv_len, bsz * num_heads, head_dim // 2).permute(1, 0, 2)
 
         q = q.permute(1, 2, 0, 3)  # (batch, head, time1, head_dim)
         p = p.permute(1, 2, 0, 3)  # (batch, head, time1, pos_dim)
@@ -2407,6 +2466,13 @@ class RelPositionMultiheadAttention(nn.Module):
         # the following .as_strided() expression converts the last axis of pos_weights from relative
         # to absolute position.  I don't know whether I might have got the time-offsets backwards or
         # not, but let this code define which way round it is supposed to be.
+        return (
+            pos_weights.sum(),
+            pos_weights.max(),
+            pos_weights.mean(),
+            pos_weights.min(),
+        )
+
         pos_weights = pos_weights.as_strided(
             (bsz, num_heads, seq_len, kv_len),
             (

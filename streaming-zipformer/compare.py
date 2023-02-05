@@ -25,8 +25,17 @@ def main():
     x_lens = torch.tensor([T])
     states = f.encoder.get_init_state()
 
+    num_encoders = 5
     cached_len = states[0]  # (num_layers, 1)
-    cached_avg = states[5]  # (num_layers, 1, d_model)
+    cached_avg = states[num_encoders]  # (num_layers, 1, d_model)
+
+    # (num_layers, left_context_len, 1, attention_dim)
+    cached_key = states[num_encoders * 2]
+    print("cached_key", cached_key.shape)
+
+    cached_val = states[num_encoders * 3]
+    print("cached_val", cached_val.shape)
+
     print("x", x.shape)  # (1, 39, 80)
     print(x_lens)  # (39,)
     print(cached_len.shape)  # (2, 1)
@@ -68,11 +77,23 @@ left_context_len: 64, chunk size 16
 
             ex.input("in2", ncnn.Mat(cached_len.squeeze().numpy()).clone())
             ex.input("in3", ncnn.Mat(cached_avg.squeeze().numpy()).clone())
+            ex.input("in4", ncnn.Mat(cached_key.squeeze().numpy()).clone())
+            ex.input("in5", ncnn.Mat(cached_val.squeeze().numpy()).clone())
 
-            ret, ncnn_out0 = ex.extract("out0")
-            assert ret == 0, ret
+            #  ret, ncnn_out49 = ex.extract("49")
+            #  assert ret == 0, ret
+            #  ncnn_49 = torch.from_numpy(ncnn_out49.numpy()).clone()
+            #  print("ncnn_49.shape", ncnn_49.shape)
+            #
+            #  ret, ncnn_out51 = ex.extract("51")
+            #  assert ret == 0, ret
+            #  ncnn_51 = torch.from_numpy(ncnn_out51.numpy()).clone()
+            #  print("ncnn_51.shape", ncnn_51.shape)
 
             ret, ncnn_out1 = ex.extract("out1")
+            assert ret == 0, ret
+
+            ret, ncnn_out0 = ex.extract("out0")
             assert ret == 0, ret
 
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
