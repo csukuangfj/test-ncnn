@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-#!/usr/bin/env python3
 
 import ncnn
 import torch
@@ -25,6 +24,13 @@ def main():
     x = torch.rand(1, T, num_features)
     x_lens = torch.tensor([T])
     states = f.encoder.get_init_state()
+
+    cached_len = states[0]  # (num_layers, 1)
+    cached_avg = states[5]  # (num_layers, 1, d_model)
+    print("x", x.shape)  # (1, 39, 80)
+    print(x_lens)  # (39,)
+    print(cached_len.shape)  # (2, 1)
+    print(cached_avg.shape)  # (2, 1, 384)
 
     y, y_lens = m(x, x_lens, states)
 
@@ -60,6 +66,9 @@ left_context_len: 64, chunk size 16
             x_lens = x_lens.float()
             ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
 
+            ex.input("in2", ncnn.Mat(cached_len.squeeze().numpy()).clone())
+            ex.input("in3", ncnn.Mat(cached_avg.squeeze().numpy()).clone())
+
             ret, ncnn_out0 = ex.extract("out0")
             assert ret == 0, ret
 
@@ -70,9 +79,10 @@ left_context_len: 64, chunk size 16
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
 
             y = y.squeeze()
-            print("shape", y.shape, ncnn_y.shape)
-            assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
-            print("y\n", y.reshape(-1)[:10], "\n", ncnn_y.reshape(-1)[:10])
+            print("y.shape", y.shape, ncnn_y.shape)
+            print("y\n", y[:5, :5], "\n", ncnn_y[:5, :5])
+            print("y\n", y[-5:, -5:], "\n", ncnn_y[-5:, -5:])
+            assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
             assert torch.eq(y_lens, ncnn_y_lens), (y_lens, ncnn_y_lens)
             print("lens", y_lens, ncnn_y_lens)
 

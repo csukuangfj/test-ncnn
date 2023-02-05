@@ -68,6 +68,14 @@ def main():
     T = decode_chunk_len + pad_length
 
     states = f.encoder.get_init_state()
+    # num_encoder_layers is 5 in our case: len("2,4,3,2,4")
+    # states[0:num_encoders], cached_len, (num_encoder_layers, 1), where 1 is the batch size
+    # states[num_encoders:2*num_encoders], cached_avg (num_layers, 1, d_model)
+    # states[2*num_encoders:3*num_encoders], cached_key (num_layers, left_context_len, 1, attention_dim)
+    # states[3*num_encoders:4*num_encoders], cached_val (num_layers, left_context_len, 1, attention_dim//2)
+    # states[4*num_encoders:5*num_encoders], cached_val2 (num_layers, left_context_len, 1, attention_dim//2)
+    # states[5*num_encoders:6*num_encoders], cached_conv1 (num_layers, 1, d_model, cnn_module_kernel-1)
+    # states[6*num_encoders:7*num_encoders], cached_conv2 (num_layers, 1, d_model, cnn_module_kernel-1)
 
     x = torch.zeros(1, T, 80, dtype=torch.float32)
     x_lens = torch.full((1,), T, dtype=torch.int32)
@@ -76,6 +84,11 @@ def main():
     #  print(m.graph)
     print(m.inlined_graph)
     m.save("m.pt")
+    # pnnx ./m.pt moduleop=scaling_converter.PoolingModuleNoProj
+    # PoolingModuleNoProj has 3 inputs:
+    #  x: shape (T, C)
+    # cached_len, (1,)
+    # cached_avg: (1, C)
 
 
 if __name__ == "__main__":

@@ -1086,13 +1086,12 @@ class ZipformerEncoderLayer(nn.Module):
         # macron style feed forward module
         src = src + self.feed_forward1(src)
 
-
         src_pool, cached_len, cached_avg = self.pooling.streaming_forward(
             src,
             cached_len=cached_len,
             cached_avg=cached_avg,
         )
-        #  src = src + src_pool
+        src = src + src_pool
 
         return (
             src,
@@ -2629,20 +2628,18 @@ class PoolingModule(nn.Module):
            - output, a Tensor of shape (T, N, C).
            - updated cached_avg, a Tensor of shape (N, C).
         """
-        if False:
-            x = x.cumsum(dim=0)  # (T, N, C)
-            x = x + (cached_avg * cached_len.unsqueeze(1)).unsqueeze(0)
-            # Accumulated numbers of frames from start
-            cum_mask = torch.arange(1, x.size(0) + 1, device=x.device)
-            cum_mask = cum_mask.unsqueeze(1) + cached_len.unsqueeze(0)  # (T, N)
-            pooling_mask = (1.0 / cum_mask).unsqueeze(2)
-            # now pooling_mask: (T, N, 1)
-            x = x * pooling_mask  # (T, N, C)
+        x = x.cumsum(dim=0)  # (T, N, C)
+        x = x + (cached_avg * cached_len.unsqueeze(1)).unsqueeze(0)
+        # Cumulated numbers of frames from start
+        cum_mask = torch.arange(1, x.size(0) + 1, device=x.device)
+        cum_mask = cum_mask.unsqueeze(1) + cached_len.unsqueeze(0)  # (T, N)
+        pooling_mask = (1.0 / cum_mask).unsqueeze(2)
+        # now pooling_mask: (T, N, 1)
+        x = x * pooling_mask  # (T, N, C)
 
-            cached_len = cached_len + x.size(0)
-            cached_avg = x[-1]
+        cached_len = cached_len + x.size(0)
+        cached_avg = x[-1]
 
-        print('project')
         x = self.proj(x)
         return x, cached_len, cached_avg
 
