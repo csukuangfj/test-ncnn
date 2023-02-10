@@ -2562,10 +2562,12 @@ class RelPositionMultiheadAttention(nn.Module):
             attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
         else:
             attn_output = self.my_permute_pqv(attn_output) # (1, 0, 2)
-            attn_output = attn_output.reshape(seq_len, attention_dim//2)
+            attn_output = attn_output.reshape(seq_len, bsz, attention_dim//2)
             attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
-            # (16, 384)
-            # TODO(fangjun): reshape it to (16, 1, 384)
+            # We have changed innerproduct in ncnn to
+            # treat (seq_len, bsz, attention_dim//2)
+            # as
+            # (seq_len, attention_dim//2)
 
 
         return attn_output, attn_output_weights, cached_key, cached_val
