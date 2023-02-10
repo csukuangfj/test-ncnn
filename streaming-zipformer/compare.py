@@ -64,6 +64,9 @@ left_context_len: 64, chunk size 16
     model = "m.ncnn.bin"
     with ncnn.Net() as net:
         #  net.opt.use_packing_layout = False
+        #  net.opt.use_fp16_arithmetic = False
+        #  net.opt.use_fp16_storage = False
+        #  net.opt.use_packing_layout = False
         #  net.opt.lightmode = False
         #  net.opt.lightmode = False
         net.load_param(param)
@@ -80,10 +83,11 @@ left_context_len: 64, chunk size 16
             ex.input("in4", ncnn.Mat(cached_key.squeeze().numpy()).clone())
             ex.input("in5", ncnn.Mat(cached_val.squeeze().numpy()).clone())
 
-            #  ret, ncnn_out49 = ex.extract("49")
+            print("start")
+            #  ret, ncnn_out61 = ex.extract("31")
             #  assert ret == 0, ret
-            #  ncnn_49 = torch.from_numpy(ncnn_out49.numpy()).clone()
-            #  print("ncnn_49.shape", ncnn_49.shape)
+            #  ncnn_61 = torch.from_numpy(ncnn_out61.numpy()).clone()
+            #  print("ncnn_61.shape", ncnn_61.shape)
             #
             #  ret, ncnn_out51 = ex.extract("51")
             #  assert ret == 0, ret
@@ -100,10 +104,14 @@ left_context_len: 64, chunk size 16
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
 
             y = y.squeeze()
+            print("shape", y.shape, ncnn_y.shape)
+            print(y.reshape(-1)[:10])
+            print(ncnn_y.reshape(-1)[:10])
             print("y.shape", y.shape, ncnn_y.shape)
-            print("y\n", y[:5, :5], "\n", ncnn_y[:5, :5])
-            print("y\n", y[-5:, -5:], "\n", ncnn_y[-5:, -5:])
+            #  print("y\n", y[:5, :5], "\n", ncnn_y[:5, :5])
+            #  print("y\n", y[-5:, -5:], "\n", ncnn_y[-5:, -5:])
             assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
+            return
             assert torch.eq(y_lens, ncnn_y_lens), (y_lens, ncnn_y_lens)
             print("lens", y_lens, ncnn_y_lens)
 

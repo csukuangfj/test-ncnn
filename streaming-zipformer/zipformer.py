@@ -456,7 +456,7 @@ class Zipformer(EncoderInterface):
 
     def _init_skip_modules(self):
         """
-        If self.zipformer_downampling_factors = (1, 2, 4, 8, 4, 2), then at the input of layer
+        If self.zipformer_downsampling_factors = (1, 2, 4, 8, 4, 2), then at the input of layer
         indexed 4 (in zero indexing), which has subsampling_factor=4, we combine the output of
         layers 2 and 3; and at the input of layer indexed 5, which has subsampling_factor=2,
         we combine the outputs of layers 1 and 4.
@@ -1884,6 +1884,25 @@ class RelPositionalEncoding(torch.nn.Module):
         return self.dropout(pos_emb)
 
 
+class RelPositionMultiheadAttentionPermute(nn.Module):
+    """ncnn does not support permuatation relating to the batch axis 0.
+    This is a workaround for exporting to ncnn via PNNX.
+    """
+
+    def __init__(self, kind: int):
+        super().__init__()
+        self.kind = kind
+        assert self.kind in (2, 3), self.kind
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.kind == 2:
+            return x.permute(1, 0, 2)
+        elif self.kind == 3:
+            return x.permute(1, 2, 0)
+        else:
+            assert False, f"Unsupported kind {self.kind}"
+
+
 class RelPositionMultiheadAttention(nn.Module):
     r"""Multi-Head Attention layer with relative position encoding
 
@@ -1930,6 +1949,9 @@ class RelPositionMultiheadAttention(nn.Module):
         )
 
         self.is_pnnx = is_pnnx
+
+        self.my_permute_pqv = RelPositionMultiheadAttentionPermute(kind=2)
+        self.my_permute_k_pos = RelPositionMultiheadAttentionPermute(kind=3)
         self.left_context_len = left_context_len
         self.x_size = x_size
 
@@ -2372,7 +2394,6 @@ class RelPositionMultiheadAttention(nn.Module):
             - cached_key: :math:`(left_context_len, N, K)`, updated cached attention key tensor of left context.
             - cached_val: :math:`(left_context_len, N, K)`, updated cached attention value tensor of left context.
         """
-
         if not self.is_pnnx:
             seq_len, bsz, _ = x_proj.size()
         else:
@@ -2419,9 +2440,8 @@ class RelPositionMultiheadAttention(nn.Module):
         # (left_context_len + x_size, N, attention_dim)
 
         v = torch.cat([cached_val, v], dim=0)
-        # v: (left_context_len + x_size, N, attention_dim)
+        # v: (left_context_len + x_size, N, attention_dim//2)
         # Update cached left contexts
-        return v + k.sum(), q.mean(), q.max(), q.min()
         if not self.is_pnnx:
             cached_key = k[-left_context_len:, ...]
             cached_val = v[-left_context_len:, ...]
@@ -2444,48 +2464,80 @@ class RelPositionMultiheadAttention(nn.Module):
             kv_len = left_context_len + self.x_size
             assert kv_len == k.shape[0], (kv_len, k.shape)
 
-        q = q.reshape(seq_len, bsz, num_heads, head_dim)
-        p = p.reshape(seq_len, bsz, num_heads, pos_dim)
-        k = k.reshape(kv_len, bsz, num_heads, head_dim)
         if not self.is_pnnx:
+            q = q.reshape(seq_len, bsz, num_heads, head_dim)
+            p = p.reshape(seq_len, bsz, num_heads, pos_dim)
+            k = k.reshape(kv_len, bsz, num_heads, head_dim)
+
             v = v.reshape(kv_len, bsz * num_heads, head_dim // 2).transpose(0, 1)
+            # v is (bsz * num_heads, kv_len, head_dim//2)
+
+            q = q.permute(1, 2, 0, 3)  # (batch, head, time1, head_dim)
+            p = p.permute(1, 2, 0, 3)  # (batch, head, time1, pos_dim)
+            k = k.permute(1, 2, 3, 0)  # (batch, head, d_k, time2)
+
+            seq_len2 = 2 * seq_len - 1 + left_context_len
+            pos = pos.reshape(1, seq_len2, num_heads, pos_dim).permute(0, 2, 3, 1)
+            # pos shape now: (batch, head, pos_dim, seq_len2)
         else:
-            v = v.reshape(kv_len, bsz * num_heads, head_dim // 2).permute(1, 0, 2)
+            q = q.reshape(seq_len, num_heads, head_dim)
+            p = p.reshape(seq_len, num_heads, pos_dim)
+            k = k.reshape(kv_len, num_heads, head_dim)
+            #  v = v.reshape(kv_len, num_heads, head_dim // 2).permute(1, 0, 2)
+            v = v.reshape(kv_len, num_heads, head_dim // 2)
+            v = self.my_permute_pqv(v)
+            # v is (num_heads, kv_len, head_dim//2) e.g., (8, 80, 12)
 
-        q = q.permute(1, 2, 0, 3)  # (batch, head, time1, head_dim)
-        p = p.permute(1, 2, 0, 3)  # (batch, head, time1, pos_dim)
-        k = k.permute(1, 2, 3, 0)  # (batch, head, d_k, time2)
+            #  q = q.permute(1, 0, 2)  # (head, time1, head_dim)
+            #  p = p.permute(1, 0, 2)  # (head, time1, pos_dim)
+            #  k = k.permute(1, 2, 0)  # (head, d_k, time2)
 
-        seq_len2 = 2 * seq_len - 1 + left_context_len
-        pos = pos.reshape(1, seq_len2, num_heads, pos_dim).permute(0, 2, 3, 1)
-        # pos shape now: (batch, head, pos_dim, seq_len2)
+            q = self.my_permute_pqv(q)  # (head, time1, head_dim), e.g., (8, 16, 24)
+            p = self.my_permute_pqv(p)  # (head, time1, pos_dim), e.g., (8, 16, 4)
+            k = self.my_permute_k_pos(k)  # (head, d_k, time2) e.g., (8, 24, 80)
 
-        # (batch, head, time1, pos_dim) x (1, head, pos_dim, seq_len2) -> (batch, head, time1, seq_len2)
+            seq_len2 = 2 * seq_len - 1 + left_context_len
+            #  pos = pos.reshape(seq_len2, num_heads, pos_dim).permute(1, 2, 0)
+            # pos shape now: (head, pos_dim, seq_len2)
+
+            pos = pos.reshape(seq_len2, num_heads, pos_dim)
+            pos = self.my_permute_k_pos(pos) # (head, pos_dim, seq_len2), e.g, (8, 4, 95)
+
+
+
+        # (batch, head, time1, pos_dim) x (1, head, pos_dim, seq_len2) -> (batch, head, time1, seq_len2) ,e.g., (1, 8, 16, 95)
         #  [where seq_len2 represents relative position.]
         pos_weights = torch.matmul(p, pos)
+
         # the following .as_strided() expression converts the last axis of pos_weights from relative
         # to absolute position.  I don't know whether I might have got the time-offsets backwards or
         # not, but let this code define which way round it is supposed to be.
-        return (
-            pos_weights.sum(),
-            pos_weights.max(),
-            pos_weights.mean(),
-            pos_weights.min(),
-        )
 
-        pos_weights = pos_weights.as_strided(
-            (bsz, num_heads, seq_len, kv_len),
-            (
-                pos_weights.stride(0),
-                pos_weights.stride(1),
-                pos_weights.stride(2) - pos_weights.stride(3),
-                pos_weights.stride(3),
-            ),
-            storage_offset=pos_weights.stride(3) * (seq_len - 1),
-        )
+        if not self.is_pnnx:
+            pos_weights = pos_weights.as_strided(
+                (bsz, num_heads, seq_len, kv_len),
+                (
+                    pos_weights.stride(0),
+                    pos_weights.stride(1),
+                    pos_weights.stride(2) - pos_weights.stride(3),
+                    pos_weights.stride(3),
+                ),
+                storage_offset=pos_weights.stride(3) * (seq_len - 1),
+            )
+        else:
+            pos_weights = pos_weights.as_strided(
+                (num_heads, seq_len, kv_len),
+                (
+                    pos_weights.stride(0),
+                    pos_weights.stride(1) - pos_weights.stride(2),
+                    pos_weights.stride(2),
+                ),
+                storage_offset=pos_weights.stride(2) * (seq_len - 1),
+            )
 
         # caution: they are really scores at this point.
         attn_output_weights = torch.matmul(q, k) + pos_weights
+
 
         # attn_output_weights: (batch, head, time1, time2)
         attn_output_weights = attn_output_weights.view(bsz * num_heads, seq_len, kv_len)
@@ -2497,13 +2549,24 @@ class RelPositionMultiheadAttention(nn.Module):
         attn_output_weights = softmax(attn_output_weights, dim=-1)
 
         attn_output = torch.bmm(attn_output_weights, v)
+
         assert list(attn_output.size()) == [bsz * num_heads, seq_len, head_dim // 2]
-        attn_output = (
-            attn_output.transpose(0, 1)
-            .contiguous()
-            .view(seq_len, bsz, attention_dim // 2)
-        )
-        attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
+        # (8, 16, 12)
+
+        if not self.is_pnnx:
+            attn_output = (
+                attn_output.transpose(0, 1)
+                .contiguous()
+                .view(seq_len, bsz, attention_dim // 2)
+            )
+            attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
+        else:
+            attn_output = self.my_permute_pqv(attn_output) # (1, 0, 2)
+            attn_output = attn_output.reshape(seq_len, attention_dim//2)
+            attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
+            # (16, 384)
+            # TODO(fangjun): reshape it to (16, 1, 384)
+
 
         return attn_output, attn_output_weights, cached_key, cached_val
 
