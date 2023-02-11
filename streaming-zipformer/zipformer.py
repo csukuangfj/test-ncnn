@@ -1444,7 +1444,6 @@ class ZipformerEncoder(nn.Module):
         left_context_len = self.left_context_len
         pos_emb = self.encoder_pos(src, left_context_len)
 
-        #  return src, cached_len, cached_avg, cached_key, cached_val, cached_val2, cached_conv1, cached_conv2
         output = src
 
         new_cached_len = []
@@ -1474,17 +1473,6 @@ class ZipformerEncoder(nn.Module):
             new_cached_val2.append(val2)
             new_cached_conv1.append(conv1)
             new_cached_conv2.append(conv2)
-
-            return (
-                output,
-                torch.stack(new_cached_len, dim=0),
-                torch.stack(new_cached_avg, dim=0),
-                torch.stack(new_cached_key, dim=0),
-                torch.stack(new_cached_val, dim=0),
-                torch.stack(new_cached_val2, dim=0),
-                torch.stack(new_cached_conv1, dim=0),
-                torch.stack(new_cached_conv2, dim=0),
-            )
 
         return (
             output,
