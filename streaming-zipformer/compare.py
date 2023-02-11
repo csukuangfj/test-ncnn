@@ -33,8 +33,20 @@ def main():
     cached_key = states[num_encoders * 2]
     print("cached_key", cached_key.shape)
 
+    # (num_layers, left_context_len, 1, attention_dim//2)
     cached_val = states[num_encoders * 3]
-    print("cached_val", cached_val.shape)
+    print("cached_val", cached_val.shape)  # (num_layers, 64, 1, 96)
+
+    cached_val2 = states[num_encoders * 4]
+    print("cached_val2", cached_val2.shape)
+
+    # (num_layers, 1, d_model, cnn_module_kernel-1)
+    cached_conv1 = states[num_encoders * 5]
+    print("cached_conv1", cached_conv1.shape)  # (num_layers, 1, 384, 30)
+
+    # (num_layers, 1, d_model, cnn_module_kernel-1)
+    cached_conv2 = states[num_encoders * 6]
+    print("cached_conv2", cached_conv2.shape)  # (num_layers, 1, 384, 30)
 
     print("x", x.shape)  # (1, 39, 80)
     print(x_lens)  # (39,)
@@ -82,6 +94,9 @@ left_context_len: 64, chunk size 16
             ex.input("in3", ncnn.Mat(cached_avg.squeeze().numpy()).clone())
             ex.input("in4", ncnn.Mat(cached_key.squeeze().numpy()).clone())
             ex.input("in5", ncnn.Mat(cached_val.squeeze().numpy()).clone())
+            ex.input("in6", ncnn.Mat(cached_val.squeeze().numpy()).clone())
+            ex.input("in7", ncnn.Mat(cached_conv1.squeeze().numpy()).clone())
+            ex.input("in8", ncnn.Mat(cached_conv2.squeeze().numpy()).clone())
 
             print("start")
             #  ret, ncnn_out61 = ex.extract("31")
@@ -105,8 +120,8 @@ left_context_len: 64, chunk size 16
 
             y = y.squeeze()
             print("shape", y.shape, ncnn_y.shape)
-            print(y.reshape(-1)[:10])
-            print(ncnn_y.reshape(-1)[:10])
+            print("y", y.reshape(-1)[:10], y.sum())
+            print("ncnn_y", ncnn_y.reshape(-1)[:10], ncnn_y.sum())
             print("y.shape", y.shape, ncnn_y.shape)
             #  print("y\n", y[:5, :5], "\n", ncnn_y[:5, :5])
             #  print("y\n", y[-5:, -5:], "\n", ncnn_y[-5:, -5:])

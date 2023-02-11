@@ -322,6 +322,7 @@ def unstack_states(states: List[Tensor]) -> List[List[Tensor]]:
     return state_list
 
 
+
 class Zipformer(EncoderInterface):
     """
     Args:
@@ -377,6 +378,7 @@ class Zipformer(EncoderInterface):
 
         self.left_context_len = self.decode_chunk_size * self.num_left_chunks
         print("left_context_len", self.left_context_len)  # 16 * 4 =  64
+
 
         # will be written to, see set_batch_count()
         self.batch_count = 0
@@ -896,9 +898,9 @@ class ZipformerEncoderLayer(nn.Module):
 
         self.feed_forward3 = FeedforwardModule(d_model, feedforward_dim, dropout)
 
-        self.conv_module1 = ConvolutionModule(d_model, cnn_module_kernel)
+        self.conv_module1 = ConvolutionModule(d_model, cnn_module_kernel, is_pnnx=is_pnnx, x_size=x_size)
 
-        self.conv_module2 = ConvolutionModule(d_model, cnn_module_kernel)
+        self.conv_module2 = ConvolutionModule(d_model, cnn_module_kernel, is_pnnx=is_pnnx, x_size=x_size)
 
         self.norm_final = BasicNorm(d_model)
 
@@ -1089,7 +1091,6 @@ class ZipformerEncoderLayer(nn.Module):
               N is the batch size, C is the convolution channels.
         """
         src_orig = src
-        print("here")
 
         # macron style feed forward module
         src = src + self.feed_forward1(src)
@@ -1113,23 +1114,13 @@ class ZipformerEncoderLayer(nn.Module):
             cached_val=cached_val,
         )
 
-        return (
-            #  src,
-            src_attn,
-            cached_len,
-            cached_avg,
-            cached_key,
-            cached_val,
-            cached_val2,
-            cached_conv1,
-            cached_conv2,
-        )
         src = src + src_attn
 
         src_conv, cached_conv1 = self.conv_module1.streaming_forward(
             src,
             cache=cached_conv1,
         )
+
         src = src + src_conv
 
         src = src + self.feed_forward2(src)
@@ -1166,6 +1157,17 @@ class ZipformerEncoderLayer(nn.Module):
             cached_conv2,
         )
 
+
+class ZipformerStateSelect(nn.Module):
+    '''ncnn does not support selecting along batch index.
+    This class provides a workaround for it. We
+    need to change pnnx accordingly.
+    '''
+    def __init__(self, i: int):
+        super().__init__()
+        self.i = i
+    def forward(self, x: torch.Tensor):
+        return x[self.i]
 
 class ZipformerEncoder(nn.Module):
     r"""ZipformerEncoder is a stack of N encoder layers
@@ -1217,6 +1219,12 @@ class ZipformerEncoder(nn.Module):
             [copy.deepcopy(encoder_layer) for i in range(num_layers)]
         )
         self.num_layers = num_layers
+
+        state_select_list = []
+        for i in range(num_layers):
+            state_select_list.append(ZipformerStateSelect(i))
+        self.state_select_list = nn.ModuleList(state_select_list)
+
 
         self.d_model = encoder_layer.d_model
         self.attention_dim = encoder_layer.attention_dim
@@ -1446,7 +1454,7 @@ class ZipformerEncoder(nn.Module):
         new_cached_val2 = []
         new_cached_conv1 = []
         new_cached_conv2 = []
-        for i, mod in enumerate(self.layers):
+        for i, (mod, state_select) in enumerate(zip(self.layers, self.state_select_list)):
             output, len_avg, avg, key, val, val2, conv1, conv2 = mod.streaming_forward(
                 output,
                 pos_emb,
@@ -1455,8 +1463,8 @@ class ZipformerEncoder(nn.Module):
                 cached_key=cached_key[i],
                 cached_val=cached_val[i],
                 cached_val2=cached_val2[i],
-                cached_conv1=cached_conv1[i],
-                cached_conv2=cached_conv2[i],
+                cached_conv1=state_select(cached_conv1),
+                cached_conv2=state_select(cached_conv2),
             )
             # Update caches
             new_cached_len.append(len_avg)
@@ -2396,6 +2404,7 @@ class RelPositionMultiheadAttention(nn.Module):
         """
         if not self.is_pnnx:
             seq_len, bsz, _ = x_proj.size()
+            assert seq_len == self.x_size, (seq_len, self.x_size)
         else:
             seq_len = self.x_size
             bsz = 1
@@ -2628,28 +2637,52 @@ class RelPositionMultiheadAttention(nn.Module):
             - updated cached attention value tensor of left context.
         """
         num_heads = self.num_heads
-        (seq_len, bsz, embed_dim) = x.shape
+
+        assert x.shape[0] == self.x_size, (x.shape[0], self.x_size)
+        assert x.shape[2] == self.embed_dim, (x.shape[2], self.embed_dim)
+
+        if not self.is_pnnx:
+            (seq_len, bsz, embed_dim) = x.shape
+        else:
+            seq_len = self.x_size
+            bsz = 1
+            embed_dim = self.embed_dim
+
         head_dim = self.attention_dim // num_heads
         # v: (tgt_len, bsz, embed_dim // 2)
         v = self.in_proj2(x)
 
-        left_context_len = cached_val.shape[0]
+        assert cached_val.shape[0] == self.left_context_len, (cached_val.shape[0], self.left_context_len)
+
+        left_context_len = self.left_context_len
         assert left_context_len > 0, left_context_len
         v = torch.cat([cached_val, v], dim=0)
         cached_val = v[-left_context_len:]
 
         seq_len2 = left_context_len + seq_len
-        v = v.reshape(seq_len2, bsz * num_heads, head_dim // 2).transpose(0, 1)
+        if not self.is_pnnx:
+            v = v.reshape(seq_len2, bsz * num_heads, head_dim // 2).transpose(0, 1)
+        else:
+            v = v.reshape(seq_len2, bsz * num_heads, head_dim // 2)
+            #  v = v.permute(1, 0, 2)
+            v = self.my_permute_pqv(v)
 
         # now v: (bsz * num_heads, seq_len, head_dim // 2)
         attn_output = torch.bmm(attn_weights, v)
 
-        # attn_output: (bsz * num_heads, seq_len, head_dim)
-        attn_output = (
-            attn_output.transpose(0, 1)
-            .contiguous()
-            .view(seq_len, bsz, self.attention_dim // 2)
-        )
+        if not self.is_pnnx:
+            # attn_output: (bsz * num_heads, seq_len, head_dim)
+            attn_output = (
+                attn_output.transpose(0, 1)
+                .contiguous()
+                .view(seq_len, bsz, self.attention_dim // 2)
+            )
+        else:
+            attn_output = self.my_permute_pqv(attn_output) # (1, 0, 2)
+            attn_output = attn_output.reshape(seq_len, bsz, self.attention_dim//2)
+            # We have changed InnerProduct in ncnn to ignore bsz
+            # when invoking self.out_proj2(attn_output)
+
         # returned value is of shape (seq_len, bsz, embed_dim), like x.
         return self.out_proj2(attn_output), cached_val
 
@@ -2808,7 +2841,10 @@ class ConvolutionModule(nn.Module):
 
     """
 
-    def __init__(self, channels: int, kernel_size: int, bias: bool = True) -> None:
+    def __init__(self, channels: int, kernel_size: int, bias: bool = True,
+            is_pnnx: bool = False,
+            x_size: int = 0,
+            ) -> None:
         """Construct an ConvolutionModule object."""
         super(ConvolutionModule, self).__init__()
         # kernerl_size should be a odd number for 'SAME' padding
@@ -2875,6 +2911,9 @@ class ConvolutionModule(nn.Module):
             bias=bias,
             initial_scale=0.05,
         )
+
+        self.is_pnnx = is_pnnx
+        self.x_size = x_size
 
     def forward(
         self,
@@ -2950,8 +2989,9 @@ class ConvolutionModule(nn.Module):
             (x.size(0), x.size(1), self.lorder),
         )
         x = torch.cat([cache, x], dim=2)
-        # Update cache
-        cache = x[:, :, -self.lorder :]
+
+        cache = x[:, :, self.x_size:]
+
         x = self.depthwise_conv(x)
 
         x = self.deriv_balancer2(x)
