@@ -118,7 +118,7 @@ left_context_len: 64, chunk size 16
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
             ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
 
-            y = y.squeeze()
+            #  y = y.squeeze()
             print("shape", y.shape, ncnn_y.shape)
             print("y", y.reshape(-1)[:10], y.sum())
             print("ncnn_y", ncnn_y.reshape(-1)[:10], ncnn_y.sum())

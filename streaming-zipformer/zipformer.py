@@ -429,11 +429,17 @@ class Zipformer(EncoderInterface):
             )
 
             if zipformer_downsampling_factors[i] != 1:
+                in_x_size = self.decode_chunk_size // zipformer_downsampling_factors[i-1]
+                out_x_size = self.decode_chunk_size // zipformer_downsampling_factors[i]
                 encoder = DownsampledZipformerEncoder(
                     encoder,
                     input_dim=encoder_dims[i - 1] if i > 0 else encoder_dims[0],
                     output_dim=encoder_dims[i],
                     downsample=zipformer_downsampling_factors[i],
+                    is_pnnx=is_pnnx,
+                    left_context_len=self.left_context_len,
+                    in_x_size=in_x_size,
+                    out_x_size=out_x_size,
                 )
             encoders.append(encoder)
         self.encoders = nn.ModuleList(encoders)
@@ -442,7 +448,10 @@ class Zipformer(EncoderInterface):
         self._init_skip_modules()
 
         self.downsample_output = AttentionDownsample(
-            encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor
+            encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor,
+            is_pnnx=is_pnnx,
+            in_x_size=self.decode_chunk_size // zipformer_downsampling_factors[-1],
+            out_x_size=self.decode_chunk_size // zipformer_downsampling_factors[-1], # TODO(fangjun): FIXME
         )
 
     def _get_layer_skip_dropout_prob(self):
@@ -720,7 +729,9 @@ class Zipformer(EncoderInterface):
                 cached_conv1=cached_conv1[i],
                 cached_conv2=cached_conv2[i],
             )
-            return x, lengths
+            if i == 1:
+                return x, lengths
+
             outputs.append(x)
             # Update caches
             new_cached_len.append(len_avg)
@@ -731,6 +742,7 @@ class Zipformer(EncoderInterface):
             new_cached_conv1.append(conv1)
             new_cached_conv2.append(conv2)
 
+        return x, lengths
         x = self.downsample_output(x)
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
@@ -1494,11 +1506,16 @@ class DownsampledZipformerEncoder(nn.Module):
     """
 
     def __init__(
-        self, encoder: nn.Module, input_dim: int, output_dim: int, downsample: int
+        self, encoder: nn.Module, input_dim: int, output_dim: int, downsample: int,
+        is_pnnx: bool = False,
+        left_context_len: int = 0,
+        in_x_size : int = 0,
+        out_x_size : int = 0,
     ):
         super(DownsampledZipformerEncoder, self).__init__()
         self.downsample_factor = downsample
-        self.downsample = AttentionDownsample(input_dim, output_dim, downsample)
+        self.downsample = AttentionDownsample(input_dim, output_dim, downsample,
+                is_pnnx=is_pnnx, in_x_size=in_x_size, out_x_size=out_x_size)
         self.encoder = encoder
         self.num_layers = encoder.num_layers
         self.d_model = encoder.d_model
@@ -1597,6 +1614,17 @@ class DownsampledZipformerEncoder(nn.Module):
         src_orig = src
         src = self.downsample(src)
 
+        return (
+            src,
+            cached_len,
+            cached_avg,
+            cached_key,
+            cached_val,
+            cached_val2,
+            cached_conv1,
+            cached_conv2,
+        )
+
         (
             src,
             cached_len,
@@ -1637,12 +1665,24 @@ class AttentionDownsample(torch.nn.Module):
     Does downsampling with attention, by weighted sum, and a projection..
     """
 
-    def __init__(self, in_channels: int, out_channels: int, downsample: int):
+    def __init__(self, in_channels: int, out_channels: int, downsample: int,
+            is_pnnx: bool = False,
+            in_x_size: int = 0,
+            out_x_size: int = 0,
+            ):
         """
         Require out_channels > in_channels.
         """
         super(AttentionDownsample, self).__init__()
-        self.query = nn.Parameter(torch.randn(in_channels) * (in_channels**-0.5))
+
+        #  self.query = nn.Parameter(torch.randn(in_channels) * (in_channels**-0.5))
+        self.query = nn.Parameter(torch.randn(1, 1, in_channels) * (in_channels**-0.5))
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.is_pnnx = is_pnnx
+        self.in_x_size = in_x_size
+        self.out_x_size = out_x_size
 
         # fill in the extra dimensions with a projection of the input
         if out_channels > in_channels:
@@ -1653,39 +1693,70 @@ class AttentionDownsample(torch.nn.Module):
             self.extra_proj = None
         self.downsample = downsample
 
+        self.d_seq_len = (in_x_size + downsample - 1) // downsample
+
     def forward(self, src: Tensor) -> Tensor:
         """
         x: (seq_len, 1, in_channels)
         Returns a tensor of shape
            ( (seq_len+downsample-1)//downsample, batch_size, out_channels)
         """
-        (seq_len, batch_size, in_channels) = src.shape
+        print('src.shape', src.shape, type(src), type(src.shape[0]), type(src.size(0)))
+        assert src.shape[0] == self.in_x_size, (src.shape[0], self.in_x_size, src.shape, type(src))
+        assert src.shape[2] == self.in_channels, (src.shape[2], self.in_channels)
+        if not self.is_pnnx:
+            (seq_len, batch_size, in_channels) = src.shape
+        else:
+            seq_len = self.in_x_size
+            batch_size = 1
+            in_channels = self.in_channels
+
         ds = self.downsample
-        d_seq_len = (seq_len + ds - 1) // ds
+        d_seq_len = self.d_seq_len
 
         # Pad to an exact multiple of self.downsample
         if seq_len != d_seq_len * ds:
+            print(seq_len, d_seq_len, ds)
+            assert self.is_pnnx is False, "TODO(fangjun): Handle it!"
             # right-pad src, repeating the last element.
             pad = d_seq_len * ds - seq_len
             src_extra = src[src.shape[0] - 1 :].expand(pad, src.shape[1], src.shape[2])
             src = torch.cat((src, src_extra), dim=0)
             assert src.shape[0] == d_seq_len * ds, (src.shape[0], d_seq_len, ds)
 
-        src = src.reshape(d_seq_len, ds, batch_size, in_channels)
-        scores = (src * self.query).sum(dim=-1, keepdim=True)
+        if not self.is_pnnx:
+            src = src.reshape(d_seq_len, ds, batch_size, in_channels)
+            scores = (src * self.query).sum(dim=-1, keepdim=True)
 
-        if not torch.jit.is_scripting() and not torch.jit.is_tracing():
-            scores = penalize_abs_values_gt(scores, limit=10.0, penalty=1.0e-04)
+            if not torch.jit.is_scripting() and not torch.jit.is_tracing():
+                scores = penalize_abs_values_gt(scores, limit=10.0, penalty=1.0e-04)
 
-        weights = scores.softmax(dim=1)
+            weights = scores.softmax(dim=1)
 
-        # ans1 is the first `in_channels` channels of the output
-        ans = (src * weights).sum(dim=1)
-        src = src.permute(0, 2, 1, 3).reshape(d_seq_len, batch_size, ds * in_channels)
+            # ans1 is the first `in_channels` channels of the output
+            ans = (src * weights).sum(dim=1)
+            src = src.permute(0, 2, 1, 3).reshape(d_seq_len, batch_size, ds * in_channels)
 
-        if self.extra_proj is not None:
-            ans2 = self.extra_proj(src)
-            ans = torch.cat((ans, ans2), dim=2)
+            if self.extra_proj is not None:
+                ans2 = self.extra_proj(src)
+                ans = torch.cat((ans, ans2), dim=2)
+        else:
+            src = src.reshape(d_seq_len, ds, in_channels)
+            scores = (src * self.query).sum(dim=-1, keepdim=True)
+
+            if not torch.jit.is_scripting() and not torch.jit.is_tracing():
+                scores = penalize_abs_values_gt(scores, limit=10.0, penalty=1.0e-04)
+
+            weights = scores.softmax(dim=1)
+
+            # ans1 is the first `in_channels` channels of the output
+            ans = (src * weights).sum(dim=1)
+
+            assert self.extra_proj is None, "The code for it being not None is not tested"
+            ans = ans.unsqueeze(1)
+            # Note: In ncnn, it is also a 3-D tensor, e.g., (8, 1, 384)
+
+
         return ans
 
 

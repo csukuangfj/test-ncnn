@@ -81,7 +81,7 @@ def main():
     x_lens = torch.full((1,), T, dtype=torch.int32)
 
     m = torch.jit.trace(f, (x, x_lens, states))
-    print(m.inlined_graph)
+    #  print(m.inlined_graph)
     #  print(m.graph)
     m.save("m.pt")
     # pnnx ./m.pt moduleop=scaling_converter.PoolingModuleNoProj
