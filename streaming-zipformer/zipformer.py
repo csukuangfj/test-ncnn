@@ -429,15 +429,15 @@ class Zipformer(EncoderInterface):
             )
 
             if zipformer_downsampling_factors[i] != 1:
-                in_x_size = self.decode_chunk_size // zipformer_downsampling_factors[i-1]
-                out_x_size = self.decode_chunk_size // zipformer_downsampling_factors[i]
+                in_x_size = self.decode_chunk_size
+                out_x_size = self.decode_chunk_size
                 encoder = DownsampledZipformerEncoder(
                     encoder,
                     input_dim=encoder_dims[i - 1] if i > 0 else encoder_dims[0],
                     output_dim=encoder_dims[i],
                     downsample=zipformer_downsampling_factors[i],
                     is_pnnx=is_pnnx,
-                    left_context_len=self.left_context_len,
+                    left_context_len=self.left_context_len // ds,
                     in_x_size=in_x_size,
                     out_x_size=out_x_size,
                 )
@@ -450,8 +450,8 @@ class Zipformer(EncoderInterface):
         self.downsample_output = AttentionDownsample(
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor,
             is_pnnx=is_pnnx,
-            in_x_size=self.decode_chunk_size // zipformer_downsampling_factors[-1],
-            out_x_size=self.decode_chunk_size // zipformer_downsampling_factors[-1], # TODO(fangjun): FIXME
+            in_x_size=self.decode_chunk_size,
+            out_x_size=self.decode_chunk_size,
         )
 
     def _get_layer_skip_dropout_prob(self):
@@ -729,7 +729,7 @@ class Zipformer(EncoderInterface):
                 cached_conv1=cached_conv1[i],
                 cached_conv2=cached_conv2[i],
             )
-            if i == 1:
+            if i == 2:
                 return x, lengths
 
             outputs.append(x)

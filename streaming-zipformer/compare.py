@@ -94,19 +94,31 @@ left_context_len: 64, chunk size 16
 
             ex.input(f"in2", ncnn.Mat(cached_len[0].squeeze().numpy()).clone())
             ex.input(f"in3", ncnn.Mat(cached_len[1].squeeze().numpy()).clone())
-            ex.input(f"in4", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
-            ex.input(f"in5", ncnn.Mat(cached_avg[1].squeeze().numpy()).clone())
-            ex.input(f"in6", ncnn.Mat(cached_key[0].squeeze().numpy()).clone())
-            ex.input(f"in7", ncnn.Mat(cached_key[1].squeeze().numpy()).clone())
-            ex.input(f"in8", ncnn.Mat(cached_val[0].squeeze().numpy()).clone())
-            ex.input(f"in9", ncnn.Mat(cached_val[1].squeeze().numpy()).clone())
-            ex.input(f"in10", ncnn.Mat(cached_val2[0].squeeze().numpy()).clone())
-            ex.input(f"in11", ncnn.Mat(cached_val2[1].squeeze().numpy()).clone())
+            ex.input(f"in4", ncnn.Mat(cached_len[2].squeeze().numpy()).clone())
 
-            ex.input(f"in12", ncnn.Mat(cached_conv1[0].squeeze().numpy()).clone())
-            ex.input(f"in13", ncnn.Mat(cached_conv1[1].squeeze().numpy()).clone())
-            ex.input(f"in14", ncnn.Mat(cached_conv2[0].squeeze().numpy()).clone())
-            ex.input(f"in15", ncnn.Mat(cached_conv2[1].squeeze().numpy()).clone())
+            ex.input(f"in5", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
+            ex.input(f"in6", ncnn.Mat(cached_avg[1].squeeze().numpy()).clone())
+            ex.input(f"in7", ncnn.Mat(cached_avg[2].squeeze().numpy()).clone())
+
+            ex.input(f"in8", ncnn.Mat(cached_key[0].squeeze().numpy()).clone())
+            ex.input(f"in9", ncnn.Mat(cached_key[1].squeeze().numpy()).clone())
+            ex.input(f"in10", ncnn.Mat(cached_key[2].squeeze().numpy()).clone())
+
+            ex.input(f"in11", ncnn.Mat(cached_val[0].squeeze().numpy()).clone())
+            ex.input(f"in12", ncnn.Mat(cached_val[1].squeeze().numpy()).clone())
+            ex.input(f"in13", ncnn.Mat(cached_val[2].squeeze().numpy()).clone())
+
+            ex.input(f"in14", ncnn.Mat(cached_val2[0].squeeze().numpy()).clone())
+            ex.input(f"in15", ncnn.Mat(cached_val2[1].squeeze().numpy()).clone())
+            ex.input(f"in16", ncnn.Mat(cached_val2[2].squeeze().numpy()).clone())
+
+            ex.input(f"in17", ncnn.Mat(cached_conv1[0].squeeze().numpy()).clone())
+            ex.input(f"in18", ncnn.Mat(cached_conv1[1].squeeze().numpy()).clone())
+            ex.input(f"in19", ncnn.Mat(cached_conv1[2].squeeze().numpy()).clone())
+
+            ex.input(f"in20", ncnn.Mat(cached_conv2[0].squeeze().numpy()).clone())
+            ex.input(f"in21", ncnn.Mat(cached_conv2[1].squeeze().numpy()).clone())
+            ex.input(f"in22", ncnn.Mat(cached_conv2[2].squeeze().numpy()).clone())
 
             #  ex.input(f"in2", ncnn.Mat(cached_len[0].squeeze().numpy()).clone())
             #  ex.input(f"in3", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
