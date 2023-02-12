@@ -1526,6 +1526,7 @@ class DownsampledZipformerEncoder(nn.Module):
         self.out_combiner = SimpleCombiner(
             input_dim, output_dim, min_weight=(0.0, 0.25)
         )
+        self.in_x_size = in_x_size
 
     def forward(
         self,
@@ -1612,19 +1613,11 @@ class DownsampledZipformerEncoder(nn.Module):
         Returns: output of shape (S, N, F) where F is the number of output features
             (output_dim to constructor)
         """
+        assert src.shape[0] == self.in_x_size, (src.shape[0], self.in_x_size)
+
         src_orig = src
 
         src = self.downsample(src)
-        #  return (
-        #      src,
-        #      cached_len,
-        #      cached_avg,
-        #      cached_key,
-        #      cached_val,
-        #      cached_val2,
-        #      cached_conv1,
-        #      cached_conv2,
-        #  )
 
         (
             src,
@@ -1646,6 +1639,12 @@ class DownsampledZipformerEncoder(nn.Module):
             cached_conv2=cached_conv2,
         )
 
+        src = self.upsample(src)
+
+        if src.shape[0] != self.in_x_size:
+            # remove any extra frames that are not a multiple of downsample_factor
+            src = src[: self.in_x_size]
+
         return (
             src,
             cached_len,
@@ -1656,10 +1655,6 @@ class DownsampledZipformerEncoder(nn.Module):
             cached_conv1,
             cached_conv2,
         )
-
-        src = self.upsample(src)
-        # remove any extra frames that are not a multiple of downsample_factor
-        src = src[: src_orig.shape[0]]
 
         return (
             self.out_combiner(src_orig, src),
@@ -1789,6 +1784,8 @@ class SimpleUpsample(torch.nn.Module):
     def __init__(self, num_channels: int, upsample: int):
         super(SimpleUpsample, self).__init__()
         self.bias = nn.Parameter(torch.randn(upsample, num_channels) * 0.01)
+        self.upsample = upsample
+        self.num_channels = num_channels
 
     def forward(self, src: Tensor) -> Tensor:
         """
