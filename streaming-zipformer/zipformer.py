@@ -788,7 +788,7 @@ class Zipformer(EncoderInterface):
             num_layers = encoder.num_layers
             ds = self.zipformer_downsampling_factors[i]
 
-            len_avg = torch.zeros(num_layers, 1, dtype=torch.int32, device=device)
+            len_avg = torch.zeros(num_layers, 1, device=device)
             cached_len.append(len_avg)
 
             avg = torch.zeros(num_layers, 1, encoder.d_model, device=device)
@@ -1113,6 +1113,7 @@ class ZipformerEncoderLayer(nn.Module):
             cached_avg=cached_avg,
         )
         src = src + src_pool
+
 
         (
             src_attn,
@@ -1612,18 +1613,18 @@ class DownsampledZipformerEncoder(nn.Module):
             (output_dim to constructor)
         """
         src_orig = src
-        src = self.downsample(src)
 
-        return (
-            src,
-            cached_len,
-            cached_avg,
-            cached_key,
-            cached_val,
-            cached_val2,
-            cached_conv1,
-            cached_conv2,
-        )
+        src = self.downsample(src)
+        #  return (
+        #      src,
+        #      cached_len,
+        #      cached_avg,
+        #      cached_key,
+        #      cached_val,
+        #      cached_val2,
+        #      cached_conv1,
+        #      cached_conv2,
+        #  )
 
         (
             src,
@@ -1644,6 +1645,18 @@ class DownsampledZipformerEncoder(nn.Module):
             cached_conv1=cached_conv1,
             cached_conv2=cached_conv2,
         )
+
+        return (
+            src,
+            cached_len,
+            cached_avg,
+            cached_key,
+            cached_val,
+            cached_val2,
+            cached_conv1,
+            cached_conv2,
+        )
+
         src = self.upsample(src)
         # remove any extra frames that are not a multiple of downsample_factor
         src = src[: src_orig.shape[0]]
@@ -1659,6 +1672,12 @@ class DownsampledZipformerEncoder(nn.Module):
             cached_conv2,
         )
 
+class AttentionDownsampleUnsqueeze(torch.nn.Module):
+    '''We apply this operation only in PyTorch
+    and discards in ncnn.
+    '''
+    def forward(self, x: torch.Tensor)->torch.Tensor:
+        return x.unsqueeze(1)
 
 class AttentionDownsample(torch.nn.Module):
     """
@@ -1684,6 +1703,8 @@ class AttentionDownsample(torch.nn.Module):
         self.in_x_size = in_x_size
         self.out_x_size = out_x_size
 
+        self.unsqueeze = AttentionDownsampleUnsqueeze()
+
         # fill in the extra dimensions with a projection of the input
         if out_channels > in_channels:
             self.extra_proj = nn.Linear(
@@ -1701,7 +1722,6 @@ class AttentionDownsample(torch.nn.Module):
         Returns a tensor of shape
            ( (seq_len+downsample-1)//downsample, batch_size, out_channels)
         """
-        print('src.shape', src.shape, type(src), type(src.shape[0]), type(src.size(0)))
         assert src.shape[0] == self.in_x_size, (src.shape[0], self.in_x_size, src.shape, type(src))
         assert src.shape[2] == self.in_channels, (src.shape[2], self.in_channels)
         if not self.is_pnnx:
@@ -1716,7 +1736,6 @@ class AttentionDownsample(torch.nn.Module):
 
         # Pad to an exact multiple of self.downsample
         if seq_len != d_seq_len * ds:
-            print(seq_len, d_seq_len, ds)
             assert self.is_pnnx is False, "TODO(fangjun): Handle it!"
             # right-pad src, repeating the last element.
             pad = d_seq_len * ds - seq_len
@@ -1753,9 +1772,10 @@ class AttentionDownsample(torch.nn.Module):
             ans = (src * weights).sum(dim=1)
 
             assert self.extra_proj is None, "The code for it being not None is not tested"
-            ans = ans.unsqueeze(1)
-            # Note: In ncnn, it is also a 3-D tensor, e.g., (8, 1, 384)
-
+            #  ans = ans.unsqueeze(1)
+            ans = self.unsqueeze(ans)
+            # Note: In ncnn, we ignore self.unsqueeze
+            # so ans in ncnn is still a 2-D tensor, e.g., (8, 384)
 
         return ans
 
@@ -2476,6 +2496,7 @@ class RelPositionMultiheadAttention(nn.Module):
 
         # self-attention
         q = x_proj[:, :, 0:attention_dim]  # (x_size, N, attention_dim)
+        #  return q, q, q, q
         k = x_proj[:, :, attention_dim : 2 * attention_dim]
         # k is (x_size, N, attention_dim)
         value_dim = attention_dim // 2
@@ -2631,11 +2652,11 @@ class RelPositionMultiheadAttention(nn.Module):
         else:
             attn_output = self.my_permute_pqv(attn_output) # (1, 0, 2)
             attn_output = attn_output.reshape(seq_len, bsz, attention_dim//2)
-            attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
-            # We have changed innerproduct in ncnn to
-            # treat (seq_len, bsz, attention_dim//2)
-            # as
+            # We have changed InnerProduct in ncnn to treat
+            # (seq_len, bsz, attention_dim//2) as
             # (seq_len, attention_dim//2)
+
+            attn_output = nn.functional.linear(attn_output, out_proj_weight, out_proj_bias)
 
 
         return attn_output, attn_output_weights, cached_key, cached_val
