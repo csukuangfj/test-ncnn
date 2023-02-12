@@ -1646,17 +1646,6 @@ class DownsampledZipformerEncoder(nn.Module):
             src = src[: self.in_x_size]
 
         return (
-            src,
-            cached_len,
-            cached_avg,
-            cached_key,
-            cached_val,
-            cached_val2,
-            cached_conv1,
-            cached_conv2,
-        )
-
-        return (
             self.out_combiner(src_orig, src),
             cached_len,
             cached_avg,
@@ -1824,6 +1813,8 @@ class SimpleCombiner(torch.nn.Module):
         assert dim2 >= dim1, (dim2, dim1)
         self.weight1 = nn.Parameter(torch.zeros(()))
         self.min_weight = min_weight
+        self.dim1 = dim1
+        self.dim2 = dim2
 
     def forward(self, src1: Tensor, src2: Tensor) -> Tensor:
         """
@@ -1848,8 +1839,12 @@ class SimpleCombiner(torch.nn.Module):
         src1 = src1 * weight1
         src2 = src2 * (1.0 - weight1)
 
-        src1_dim = src1.shape[-1]
-        src2_dim = src2.shape[-1]
+        assert src1.shape[-1] == self.dim1, (src1.shape[-1], self.dim1)
+        assert src2.shape[-1] == self.dim2, (src2.shape[-1], self.dim2)
+
+        src1_dim = self.dim1
+        src2_dim = self.dim2
+
         if src1_dim != src2_dim:
             if src1_dim < src2_dim:
                 src1 = torch.nn.functional.pad(src1, (0, src2_dim - src1_dim))
