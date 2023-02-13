@@ -729,8 +729,6 @@ class Zipformer(EncoderInterface):
                 cached_conv1=cached_conv1[i],
                 cached_conv2=cached_conv2[i],
             )
-            if i == 2:
-                return x, lengths
 
             outputs.append(x)
             # Update caches
