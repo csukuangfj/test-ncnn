@@ -652,7 +652,6 @@ class Zipformer(EncoderInterface):
     def streaming_forward(
         self,
         x: torch.Tensor,
-        x_lens: torch.Tensor,
         states: List[Tensor],
         #  ) -> Tuple[Tensor, Tensor, List[Tensor]]:
     ) -> Tuple[Tensor, Tensor]:
@@ -661,9 +660,6 @@ class Zipformer(EncoderInterface):
           x:
             The input tensor. Its shape is (batch_size, seq_len, feature_dim).
             seq_len is the input chunk length.
-          x_lens:
-            A tensor of shape (batch_size,) containing the number of frames in
-            `x` before padding.
           states:
             A list of 7 * num_encoders elements:
             ``states[0:num_encoders]`` is the cached numbers of past frames.
@@ -693,13 +689,6 @@ class Zipformer(EncoderInterface):
 
         x = self.encoder_embed(x)
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
-        if not self.is_pnnx:
-            lengths = (x_lens - 7) >> 1
-        else:
-            lengths = torch.floor((x_lens - 7) / 2)
-            lengths = lengths.to(x_lens)
-
-        assert x.size(0) == lengths.max().item(), (x.shape, lengths, lengths.max())
 
         outputs = []
         new_cached_len = []
@@ -740,9 +729,6 @@ class Zipformer(EncoderInterface):
         x = self.downsample_output(x)
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
-        return x, lengths
-
-        lengths = (lengths + 1) >> 1
 
         x = x.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
 
@@ -755,7 +741,7 @@ class Zipformer(EncoderInterface):
             + new_cached_conv1
             + new_cached_conv2
         )
-        return x, lengths, new_states
+        return x, new_states
 
     @torch.jit.export
     def get_init_state(

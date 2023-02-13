@@ -42,17 +42,13 @@ class Foo(nn.Module):
         super().__init__()
         self.encoder = get_encoder_model()
 
-    def forward(
-        self, x: torch.Tensor, x_lens: torch.Tensor, states: List[torch.Tensor]
-    ):
+    def forward(self, x: torch.Tensor, states: List[torch.Tensor]):
         """
         Args:
           x:
             (N, T, C)
-          x_lens:
-            (N,)
         """
-        return self.encoder(x, x_lens, states)
+        return self.encoder(x, states)
 
 
 @torch.no_grad()
@@ -78,9 +74,8 @@ def main():
     # states[6*num_encoders:7*num_encoders], cached_conv2 (num_layers, 1, d_model, cnn_module_kernel-1)
 
     x = torch.zeros(1, T, 80, dtype=torch.float32)
-    x_lens = torch.full((1,), T, dtype=torch.int32)
 
-    m = torch.jit.trace(f, (x, x_lens, states))
+    m = torch.jit.trace(f, (x, states))
     #  print(m.inlined_graph)
     #  print(m.graph)
     m.save("m.pt")

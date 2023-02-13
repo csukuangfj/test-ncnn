@@ -21,58 +21,6 @@ def main():
     m = torch.jit.load("m.pt")
     num_features = 80
 
-    x = torch.rand(1, T, num_features)
-    x_lens = torch.tensor([T])
-    states = f.encoder.get_init_state()
-
-    num_encoders = 5
-    cached_len = states[num_encoders * 0 : num_encoders * 1]  # (num_layers, 1)
-    cached_avg = states[num_encoders * 1 : num_encoders * 2]  # (num_layers, 1, d_model)
-
-    # (num_layers, left_context_len, 1, attention_dim)
-    cached_key = states[num_encoders * 2 : num_encoders * 3]
-    print("cached_key", cached_key[0].shape)
-
-    # (num_layers, left_context_len, 1, attention_dim//2)
-    cached_val = states[num_encoders * 3 : num_encoders * 4]
-    print("cached_val", cached_val[0].shape)  # (num_layers, 64, 1, 96)
-
-    cached_val2 = states[num_encoders * 4 : num_encoders * 5]
-    print("cached_val2", cached_val2[0].shape)
-
-    # (num_layers, 1, d_model, cnn_module_kernel-1)
-    cached_conv1 = states[num_encoders * 5 : num_encoders * 6]
-    print("cached_conv1", cached_conv1[0].shape)  # (num_layers, 1, 384, 30)
-
-    # (num_layers, 1, d_model, cnn_module_kernel-1)
-    cached_conv2 = states[num_encoders * 6 : num_encoders * 7]
-    print("cached_conv2", cached_conv2[0].shape)  # (num_layers, 1, 384, 30)
-
-    print("x", x.shape)  # (1, 39, 80)
-    print(x_lens)  # (39,)
-    print("cached_len[0].shape", cached_len[0].shape)  # (2, 1)
-    print("cached_len[1].shape", cached_len[1].shape)  # (2, 1)
-    print("cached_avg[0].shape", cached_avg[0].shape)  # (2, 1, 384)
-    print("cached_avg[1].shape", cached_avg[1].shape)  # (2, 1, 384)
-
-    y, y_lens = m(x, x_lens, states)
-
-    print((x.shape[1] - 7) // 2)
-
-    print("x", x.shape)  # (1, 39, 80)
-    print("y", y.shape)  # (1, 16, 384)
-    print("y_lens", y_lens)
-
-    """
-[1, 39, 80]
-after subsampling,
-[1, 16, 384]
-
-left_context_len: 64, chunk size 16
-2*16 + 64 - 1 = 95, rel positional encoding: pe.shape [1, 95, 384]
-    """
-
-    y = y.squeeze(0)
 
     param = "m.ncnn.param"
     model = "m.ncnn.bin"
@@ -86,105 +34,192 @@ left_context_len: 64, chunk size 16
         net.load_param(param)
         net.load_model(model)
 
-        with net.create_extractor() as ex:
-            ex.input("in0", ncnn.Mat(x.squeeze(0).numpy()).clone())
+        states = f.encoder.get_init_state()
+        num_encoders = 5
 
-            x_lens = x_lens.float()
-            ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
+        for kk in range(10):
+            print('----iter----',kk)
 
-            ex.input(f"in2", ncnn.Mat(cached_len[0].squeeze().numpy()).clone())
-            ex.input(f"in3", ncnn.Mat(cached_len[1].squeeze().numpy()).clone())
-            ex.input(f"in4", ncnn.Mat(cached_len[2].squeeze().numpy()).clone())
-            ex.input(f"in5", ncnn.Mat(cached_len[3].squeeze().numpy()).clone())
-            ex.input(f"in6", ncnn.Mat(cached_len[4].squeeze().numpy()).clone())
+            x = torch.rand(1, T, num_features)
+            cached_len = states[num_encoders * 0 : num_encoders * 1]  # (num_layers, 1)
+            cached_avg = states[num_encoders * 1 : num_encoders * 2]  # (num_layers, 1, d_model)
 
-            ex.input(f"in7", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
-            ex.input(f"in8", ncnn.Mat(cached_avg[1].squeeze().numpy()).clone())
-            ex.input(f"in9", ncnn.Mat(cached_avg[2].squeeze().numpy()).clone())
-            ex.input(f"in10", ncnn.Mat(cached_avg[3].squeeze().numpy()).clone())
-            ex.input(f"in11", ncnn.Mat(cached_avg[4].squeeze().numpy()).clone())
+            # (num_layers, left_context_len, 1, attention_dim)
+            cached_key = states[num_encoders * 2 : num_encoders * 3]
 
-            ex.input(f"in12", ncnn.Mat(cached_key[0].squeeze().numpy()).clone())
-            ex.input(f"in13", ncnn.Mat(cached_key[1].squeeze().numpy()).clone())
-            ex.input(f"in14", ncnn.Mat(cached_key[2].squeeze().numpy()).clone())
-            ex.input(f"in15", ncnn.Mat(cached_key[3].squeeze().numpy()).clone())
-            ex.input(f"in16", ncnn.Mat(cached_key[4].squeeze().numpy()).clone())
+            # (num_layers, left_context_len, 1, attention_dim//2)
+            cached_val = states[num_encoders * 3 : num_encoders * 4]
 
-            ex.input(f"in17", ncnn.Mat(cached_val[0].squeeze().numpy()).clone())
-            ex.input(f"in18", ncnn.Mat(cached_val[1].squeeze().numpy()).clone())
-            ex.input(f"in19", ncnn.Mat(cached_val[2].squeeze().numpy()).clone())
-            ex.input(f"in20", ncnn.Mat(cached_val[3].squeeze().numpy()).clone())
-            ex.input(f"in21", ncnn.Mat(cached_val[4].squeeze().numpy()).clone())
+            cached_val2 = states[num_encoders * 4 : num_encoders * 5]
 
-            ex.input(f"in22", ncnn.Mat(cached_val2[0].squeeze().numpy()).clone())
-            ex.input(f"in23", ncnn.Mat(cached_val2[1].squeeze().numpy()).clone())
-            ex.input(f"in24", ncnn.Mat(cached_val2[2].squeeze().numpy()).clone())
-            ex.input(f"in25", ncnn.Mat(cached_val2[3].squeeze().numpy()).clone())
-            ex.input(f"in26", ncnn.Mat(cached_val2[4].squeeze().numpy()).clone())
+            # (num_layers, 1, d_model, cnn_module_kernel-1)
+            cached_conv1 = states[num_encoders * 5 : num_encoders * 6]
 
-            ex.input(f"in27", ncnn.Mat(cached_conv1[0].squeeze().numpy()).clone())
-            ex.input(f"in28", ncnn.Mat(cached_conv1[1].squeeze().numpy()).clone())
-            ex.input(f"in29", ncnn.Mat(cached_conv1[2].squeeze().numpy()).clone())
-            ex.input(f"in30", ncnn.Mat(cached_conv1[3].squeeze().numpy()).clone())
-            ex.input(f"in31", ncnn.Mat(cached_conv1[4].squeeze().numpy()).clone())
+            # (num_layers, 1, d_model, cnn_module_kernel-1)
+            cached_conv2 = states[num_encoders * 6 : num_encoders * 7]
 
-            ex.input(f"in32", ncnn.Mat(cached_conv2[0].squeeze().numpy()).clone())
-            ex.input(f"in33", ncnn.Mat(cached_conv2[1].squeeze().numpy()).clone())
-            ex.input(f"in34", ncnn.Mat(cached_conv2[2].squeeze().numpy()).clone())
-            ex.input(f"in35", ncnn.Mat(cached_conv2[3].squeeze().numpy()).clone())
-            ex.input(f"in36", ncnn.Mat(cached_conv2[4].squeeze().numpy()).clone())
+            y, next_states = m(x, states)
 
-            #  ex.input(f"in2", ncnn.Mat(cached_len[0].squeeze().numpy()).clone())
-            #  ex.input(f"in3", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
-            #  ex.input(f"in4", ncnn.Mat(cached_key[0].squeeze().numpy()).clone())
-            #  ex.input(f"in5", ncnn.Mat(cached_val[0].squeeze().numpy()).clone())
-            #  ex.input(f"in6", ncnn.Mat(cached_conv1[0].squeeze().numpy()).clone())
+            with net.create_extractor() as ex:
+                ex.input("in0", ncnn.Mat(x.squeeze(0).numpy()).clone())
 
-            # fmt: off
-            #  for k in range(2):
-            #      print('k', k, f"in{2+k}", f"in{4+k}", f"in{6+k}")
-            #      print('k', k, f"in{8+k}", f"in{10+k}", f"in{12+k}")
-            #      print('k', k, f"in{14+k}")
-            #      ex.input(f"in{2+k}", ncnn.Mat(cached_len[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{4+k}", ncnn.Mat(cached_avg[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{6+k}", ncnn.Mat(cached_key[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{8+k}", ncnn.Mat(cached_val[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{10+k}", ncnn.Mat(cached_val2[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{12+k}", ncnn.Mat(cached_conv1[k].squeeze().numpy()).clone())
-            #      ex.input(f"in{14+k}", ncnn.Mat(cached_conv2[k].squeeze().numpy()).clone())
-            # fmt: on
+                ex.input(f"in1", ncnn.Mat(cached_len[0].squeeze().numpy()).clone())
+                ex.input(f"in2", ncnn.Mat(cached_len[1].squeeze().numpy()).clone())
+                ex.input(f"in3", ncnn.Mat(cached_len[2].squeeze().numpy()).clone())
+                ex.input(f"in4", ncnn.Mat(cached_len[3].squeeze().numpy()).clone())
+                ex.input(f"in5", ncnn.Mat(cached_len[4].squeeze().numpy()).clone())
 
-            print("start")
-            #  ret, ncnn_out61 = ex.extract("31")
-            #  assert ret == 0, ret
-            #  ncnn_61 = torch.from_numpy(ncnn_out61.numpy()).clone()
-            #  print("ncnn_61.shape", ncnn_61.shape)
-            #
-            #  ret, ncnn_out51 = ex.extract("51")
-            #  assert ret == 0, ret
-            #  ncnn_51 = torch.from_numpy(ncnn_out51.numpy()).clone()
-            #  print("ncnn_51.shape", ncnn_51.shape)
+                ex.input(f"in6", ncnn.Mat(cached_avg[0].squeeze().numpy()).clone())
+                ex.input(f"in7", ncnn.Mat(cached_avg[1].squeeze().numpy()).clone())
+                ex.input(f"in8", ncnn.Mat(cached_avg[2].squeeze().numpy()).clone())
+                ex.input(f"in9", ncnn.Mat(cached_avg[3].squeeze().numpy()).clone())
+                ex.input(f"in10", ncnn.Mat(cached_avg[4].squeeze().numpy()).clone())
 
-            #  ret, ncnn_out1 = ex.extract("out1")
-            #  assert ret == 0, ret
+                ex.input(f"in11", ncnn.Mat(cached_key[0].squeeze().numpy()).clone())
+                ex.input(f"in12", ncnn.Mat(cached_key[1].squeeze().numpy()).clone())
+                ex.input(f"in13", ncnn.Mat(cached_key[2].squeeze().numpy()).clone())
+                ex.input(f"in14", ncnn.Mat(cached_key[3].squeeze().numpy()).clone())
+                ex.input(f"in15", ncnn.Mat(cached_key[4].squeeze().numpy()).clone())
 
-            ret, ncnn_out0 = ex.extract("out0")
-            assert ret == 0, ret
+                ex.input(f"in16", ncnn.Mat(cached_val[0].squeeze().numpy()).clone())
+                ex.input(f"in17", ncnn.Mat(cached_val[1].squeeze().numpy()).clone())
+                ex.input(f"in18", ncnn.Mat(cached_val[2].squeeze().numpy()).clone())
+                ex.input(f"in19", ncnn.Mat(cached_val[3].squeeze().numpy()).clone())
+                ex.input(f"in20", ncnn.Mat(cached_val[4].squeeze().numpy()).clone())
 
-            ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
+                ex.input(f"in21", ncnn.Mat(cached_val2[0].squeeze().numpy()).clone())
+                ex.input(f"in22", ncnn.Mat(cached_val2[1].squeeze().numpy()).clone())
+                ex.input(f"in23", ncnn.Mat(cached_val2[2].squeeze().numpy()).clone())
+                ex.input(f"in24", ncnn.Mat(cached_val2[3].squeeze().numpy()).clone())
+                ex.input(f"in25", ncnn.Mat(cached_val2[4].squeeze().numpy()).clone())
 
-            y = y.squeeze()
-            print("shape", y.shape, ncnn_y.shape)
-            print("y", y.reshape(-1)[:10], y.abs().sum())
-            print("ncnn_y", ncnn_y.reshape(-1)[:10], ncnn_y.abs().sum())
-            print("y.shape", y.shape, ncnn_y.shape)
-            #  print("y\n", y[:5, :5], "\n", ncnn_y[:5, :5])
-            #  print("y\n", y[-5:, -5:], "\n", ncnn_y[-5:, -5:])
-            assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
-            return
-            ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone().int()
-            assert torch.eq(y_lens, ncnn_y_lens), (y_lens, ncnn_y_lens)
-            print("lens", y_lens, ncnn_y_lens)
+                ex.input(f"in26", ncnn.Mat(cached_conv1[0].squeeze().numpy()).clone())
+                ex.input(f"in27", ncnn.Mat(cached_conv1[1].squeeze().numpy()).clone())
+                ex.input(f"in28", ncnn.Mat(cached_conv1[2].squeeze().numpy()).clone())
+                ex.input(f"in29", ncnn.Mat(cached_conv1[3].squeeze().numpy()).clone())
+                ex.input(f"in30", ncnn.Mat(cached_conv1[4].squeeze().numpy()).clone())
+
+                ex.input(f"in31", ncnn.Mat(cached_conv2[0].squeeze().numpy()).clone())
+                ex.input(f"in32", ncnn.Mat(cached_conv2[1].squeeze().numpy()).clone())
+                ex.input(f"in33", ncnn.Mat(cached_conv2[2].squeeze().numpy()).clone())
+                ex.input(f"in34", ncnn.Mat(cached_conv2[3].squeeze().numpy()).clone())
+                ex.input(f"in35", ncnn.Mat(cached_conv2[4].squeeze().numpy()).clone())
+
+                ret, ncnn_out0 = ex.extract("out0")
+                assert ret == 0, ret
+
+                ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
+
+                y = y.squeeze()
+                print("shape", y.shape, ncnn_y.shape)
+                print("y", y.reshape(-1)[:10], y.abs().sum())
+                print("ncnn_y", ncnn_y.reshape(-1)[:10], ncnn_y.abs().sum())
+                print("y.shape", y.shape, ncnn_y.shape)
+                assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
+
+                next_cached_len = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+1}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_len.append(ncnn_out)
+                for (torch_s, ncnn_s) in zip(next_states[:num_encoders], next_cached_len):
+                    print("cached_len", torch_s.shape, ncnn_s.shape)
+                    assert torch.all(torch.eq(torch_s, ncnn_s)), (
+                        (torch_s - ncnn_s).abs().max()
+                    )
+
+                next_cached_avg = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+6}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_avg.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 1 : num_encoders * 2], next_cached_avg
+                )):
+                    print(i,"cached_avg", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_avg abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_avg values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                next_cached_key = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+11}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_key.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 2 : num_encoders * 3], next_cached_key
+                )):
+                    torch_s = torch_s.squeeze()
+                    print(i,"cached_key", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_key abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_key values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                next_cached_val = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+16}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_val.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 3 : num_encoders * 4], next_cached_val
+                )):
+                    torch_s = torch_s.squeeze()
+                    print(i,"cached_val", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_val abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_val values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                next_cached_val2 = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+21}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_val2.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 4 : num_encoders * 5], next_cached_val2
+                )):
+                    torch_s = torch_s.squeeze()
+                    print(i,"cached_val2", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_val2 abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_val2 values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                next_cached_conv1 = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+26}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_conv1.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 5 : num_encoders * 6], next_cached_conv1
+                )):
+                    torch_s = torch_s.squeeze()
+                    print(i,"cached_conv1", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_conv1 abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_conv1 values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                next_cached_conv2 = []
+                for i in range(num_encoders):
+                    ret, ncnn_out = ex.extract(f"out{i+31}")
+                    assert ret == 0, ret
+                    ncnn_out = torch.from_numpy(ncnn_out.numpy()).clone()
+                    next_cached_conv2.append(ncnn_out)
+                for i, (torch_s, ncnn_s) in enumerate(zip(
+                    next_states[num_encoders * 6 : num_encoders * 7], next_cached_conv2
+                )):
+                    torch_s = torch_s.squeeze()
+                    print(i,"cached_conv2", torch_s.shape, ncnn_s.shape)
+                    print(i,"cached_conv2 abs sum", torch_s.abs().sum(), ncnn_s.abs().sum())
+                    print(i,"cached_conv2 values", torch_s.reshape(-1)[:5], ncnn_s.reshape(-1)[:5])
+                    assert torch.allclose(torch_s, ncnn_s,atol=1e-2), (torch_s - ncnn_s).abs().max()
+
+                states = next_states
+
 
 
 if __name__ == "__main__":
