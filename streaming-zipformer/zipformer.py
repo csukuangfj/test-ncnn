@@ -430,7 +430,6 @@ class Zipformer(EncoderInterface):
 
             if zipformer_downsampling_factors[i] != 1:
                 in_x_size = self.decode_chunk_size
-                out_x_size = self.decode_chunk_size
                 encoder = DownsampledZipformerEncoder(
                     encoder,
                     input_dim=encoder_dims[i - 1] if i > 0 else encoder_dims[0],
@@ -439,7 +438,6 @@ class Zipformer(EncoderInterface):
                     is_pnnx=is_pnnx,
                     left_context_len=self.left_context_len // ds,
                     in_x_size=in_x_size,
-                    out_x_size=out_x_size,
                 )
             encoders.append(encoder)
         self.encoders = nn.ModuleList(encoders)
@@ -451,7 +449,6 @@ class Zipformer(EncoderInterface):
             encoder_dims[-1], encoder_dims[-1], downsample=output_downsampling_factor,
             is_pnnx=is_pnnx,
             in_x_size=self.decode_chunk_size,
-            out_x_size=self.decode_chunk_size,
         )
 
     def _get_layer_skip_dropout_prob(self):
@@ -740,10 +737,11 @@ class Zipformer(EncoderInterface):
             new_cached_conv1.append(conv1)
             new_cached_conv2.append(conv2)
 
-        return x, lengths
         x = self.downsample_output(x)
         # class Downsample has this rounding behavior..
         assert self.output_downsampling_factor == 2, self.output_downsampling_factor
+        return x, lengths
+
         lengths = (lengths + 1) >> 1
 
         x = x.permute(1, 0, 2)  # (T, N, C) ->(N, T, C)
@@ -1509,12 +1507,11 @@ class DownsampledZipformerEncoder(nn.Module):
         is_pnnx: bool = False,
         left_context_len: int = 0,
         in_x_size : int = 0,
-        out_x_size : int = 0,
     ):
         super(DownsampledZipformerEncoder, self).__init__()
         self.downsample_factor = downsample
         self.downsample = AttentionDownsample(input_dim, output_dim, downsample,
-                is_pnnx=is_pnnx, in_x_size=in_x_size, out_x_size=out_x_size)
+                is_pnnx=is_pnnx, in_x_size=in_x_size)
         self.encoder = encoder
         self.num_layers = encoder.num_layers
         self.d_model = encoder.d_model
@@ -1669,7 +1666,6 @@ class AttentionDownsample(torch.nn.Module):
     def __init__(self, in_channels: int, out_channels: int, downsample: int,
             is_pnnx: bool = False,
             in_x_size: int = 0,
-            out_x_size: int = 0,
             ):
         """
         Require out_channels > in_channels.
@@ -1683,7 +1679,6 @@ class AttentionDownsample(torch.nn.Module):
         self.out_channels = out_channels
         self.is_pnnx = is_pnnx
         self.in_x_size = in_x_size
-        self.out_x_size = out_x_size
 
         self.unsqueeze = AttentionDownsampleUnsqueeze()
 
