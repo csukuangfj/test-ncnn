@@ -1658,8 +1658,7 @@ class AttentionDownsample(torch.nn.Module):
         """
         super(AttentionDownsample, self).__init__()
 
-        #  self.query = nn.Parameter(torch.randn(in_channels) * (in_channels**-0.5))
-        self.query = nn.Parameter(torch.randn(1, 1, in_channels) * (in_channels**-0.5))
+        self.query = nn.Parameter(torch.randn(in_channels) * (in_channels**-0.5))
 
         self.in_channels = in_channels
         self.out_channels = out_channels
