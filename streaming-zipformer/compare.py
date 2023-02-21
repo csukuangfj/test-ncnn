@@ -31,6 +31,7 @@ def main():
         #  net.opt.use_packing_layout = False
         #  net.opt.lightmode = False
         #  net.opt.lightmode = False
+        net.opt.num_threads = 4
         net.load_param(param)
         net.load_model(model)
 
