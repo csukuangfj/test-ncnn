@@ -213,6 +213,7 @@ class RNN(EncoderInterface):
             - updated states, whose shape is the same as the input states.
         """
         x = self.encoder_embed(x)
+        return x
         x = x.permute(1, 0, 2)  # (N, T, C) -> (T, N, C)
 
         # lengths = ((x_lens - 3) // 2 - 1) // 2 # issue an warning
