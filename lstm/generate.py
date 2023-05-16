@@ -34,14 +34,13 @@ class Foo(nn.Module):
           c:
             (num_layers, N, rnn_hidden_size)
         """
-        y = self.model(x, x_lens, h, c)
-        #  y, (hx, cx) = self.lstm(x, (h, c))
-        #  y = nn.functional.softmax(y, -1)
-        return y
+        y, y_lens, (next_h, next_c) = self.model(x, x_lens, (h, c))
+        return y, y_lens, next_h, next_c
 
 
 def main():
     f = Foo()
+    f.eval()
     convert_scaled_to_non_scaled(f, inplace=True, is_onnx=False)
     x = torch.zeros(1, 100, 80, dtype=torch.float32)
     x_lens = torch.tensor([100], dtype=torch.int64)

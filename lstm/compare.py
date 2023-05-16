@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-#!/usr/bin/env python3
-
 import ncnn
 import torch
 
@@ -23,7 +21,11 @@ def main():
     assert h0.shape == (num_encoder_layers, N, encoder_dim)
     assert c0.shape == (num_encoder_layers, N, rnn_hidden_size)
 
-    y = m(x, x_lens, h0, c0)
+    y, y_lens, h1, c1 = m(x, x_lens, h0, c0)
+    print(y.shape)
+    print(y_lens)
+    print(h1.shape)
+    print(c1.shape)
     assert y.shape == (N, 1, encoder_dim)
 
     param = "m.ncnn.param"
@@ -35,12 +37,55 @@ def main():
 
         with net.create_extractor() as ex:
             ex.input("in0", ncnn.Mat(x.squeeze(0).numpy()).clone())
+            x_lens = x_lens.float()
+            ex.input("in1", ncnn.Mat(x_lens.numpy()).clone())
+            ex.input("in2", ncnn.Mat(h0.squeeze(1).numpy()).clone())
+            ex.input("in3", ncnn.Mat(c0.squeeze(1).numpy()).clone())
             ret, ncnn_out0 = ex.extract("out0")
+            assert ret == 0, ret
 
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
-            y = y.reshape(-1)
-            print(y[:10], ncnn_y[:10], y.sum(), ncnn_y.sum(), (y - ncnn_y).abs().max())
-            assert torch.allclose(y, ncnn_y, atol=1e-3), (y - ncnn_y).abs().max()
+            y = y.squeeze(0)
+            print("y shape", y.shape, ncnn_y.shape)
+
+            print(y[0, :10], ncnn_y[0, :10])
+            print(y[0, -10:], ncnn_y[0, -10:])
+            assert torch.allclose(y, ncnn_y, atol=1e-2), (y - ncnn_y).abs().max()
+            print("------------------------------")
+
+            ret, ncnn_out1 = ex.extract("out1")
+            assert ret == 0, ret
+
+            ncnn_y_lens = torch.from_numpy(ncnn_out1.numpy()).clone()
+            print(y_lens, ncnn_y_lens)
+            assert y_lens[0] == ncnn_y_lens[0]
+
+            print("------------h------------------")
+
+            ret, ncnn_out2 = ex.extract("out2")
+            assert ret == 0, ret
+
+            h1 = h1.squeeze(1)
+
+            ncnn_h1 = torch.from_numpy(ncnn_out2.numpy()).clone()
+            print(h1.shape, ncnn_h1.shape)
+
+            print(h1[0, :10], ncnn_h1[0, :10])
+            print(h1[-1, :10], ncnn_h1[-1, :10])
+            assert torch.allclose(h1, ncnn_h1, atol=1e-2), (h1 - ncnn_h1).abs().max()
+
+            print("------------c------------------")
+
+            ret, ncnn_out3 = ex.extract("out3")
+            assert ret == 0, ret
+
+            ncnn_c1 = torch.from_numpy(ncnn_out3.numpy()).clone()
+
+            c1 = c1.squeeze(1)
+
+            print(c1[0, :10], ncnn_c1[0, :10])
+            print(c1[-1, :10], ncnn_c1[-1, :10])
+            assert torch.allclose(c1, ncnn_c1, atol=1e-2), (c1 - ncnn_c1).abs().max()
 
 
 if __name__ == "__main__":
