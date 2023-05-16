@@ -19,7 +19,6 @@ def main():
     y = m(encoder_out, decoder_out)
 
     print(y.shape)  # (1, 500)
-    y = y.squeeze(0)
 
     param = "m.ncnn.param"
     model = "m.ncnn.bin"
@@ -35,9 +34,10 @@ def main():
             ret, ncnn_out0 = ex.extract("out0")  # its shape is (500,)
 
             ncnn_y = torch.from_numpy(ncnn_out0.numpy()).clone()
-            print("y", y.shape, ncnn_y.shape)
-            print(y[:10])
-            print(ncnn_y[:10])
+            assert ncnn_y.shape == (1, 500)
+            assert y.shape == (1, 500)
+            print(y[0, :10])
+            print(ncnn_y[0, :10])
             assert torch.allclose(y, ncnn_y, atol=1e-2), (
                 (y - ncnn_y).abs().max(),
                 y.mean(),
